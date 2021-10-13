@@ -22,14 +22,8 @@ from __future__ import division
 from __future__ import print_function
 
 import functools
-import os
-import tempfile
 
-from absl import logging
-import h5py
 import tensorflow as tf
-
-from delf.python.pooling_layers import pooling as pooling_layers
 
 layers = tf.keras.layers
 
@@ -184,16 +178,13 @@ class ResNet50(tf.keras.Model):
       output of the last convolutional layer. 'avg' means that global average
       pooling will be applied to the output of the last convolutional layer, and
       thus the output of the model will be a 2D tensor. 'max' means that global
-      max pooling will be applied. 'gem' means GeM pooling will be applied.
+      max pooling will be applied.
     block3_strides: whether to add a stride of 2 to block3 to make it compatible
       with tf.slim ResNet implementation.
     average_pooling: whether to do average pooling of block4 features before
       global pooling.
     classes: optional number of classes to classify images into, only to be
       specified if `include_top` is True.
-    gem_power: GeM power for GeM pooling. Only used if pooling == 'gem'.
-    embedding_layer: whether to create an embedding layer (FC whitening layer).
-    embedding_layer_dim: size of the embedding layer.
 
   Raises:
       ValueError: in case of invalid argument for data_format.
@@ -206,10 +197,7 @@ class ResNet50(tf.keras.Model):
                pooling=None,
                block3_strides=False,
                average_pooling=True,
-               classes=1000,
-               gem_power=3.0,
-               embedding_layer=False,
-               embedding_layer_dim=2048):
+               classes=1000):
     super(ResNet50, self).__init__(name=name)
 
     valid_channel_values = ('channels_first', 'channels_last')
@@ -293,22 +281,11 @@ class ResNet50(tf.keras.Model):
       elif pooling == 'max':
         self.global_pooling = functools.partial(
             tf.reduce_max, axis=reduction_indices, keepdims=False)
-      elif pooling == 'gem':
-        logging.info('Adding GeMPooling layer with power %f', gem_power)
-        self.global_pooling = functools.partial(
-            pooling_layers.gem, axis=reduction_indices, power=gem_power)
       else:
         self.global_pooling = None
-      if embedding_layer:
-        logging.info('Adding embedding layer with dimension %d',
-                     embedding_layer_dim)
-        self.embedding_layer = layers.Dense(
-            embedding_layer_dim, name='embedding_layer')
-      else:
-        self.embedding_layer = None
 
-  def build_call(self, inputs, training=True, intermediates_dict=None):
-    """Building the ResNet50 model.
+  def call(self, inputs, training=True, intermediates_dict=None):
+    """Call the ResNet50 model.
 
     Args:
       inputs: Images to compute features for.
@@ -376,85 +353,6 @@ class ResNet50(tf.keras.Model):
     if self.include_top:
       return self.fc1000(self.flatten(x))
     elif self.global_pooling:
-      x = self.global_pooling(x)
-      if self.embedding_layer:
-        x = self.embedding_layer(x)
-      return x
+      return self.global_pooling(x)
     else:
       return x
-
-  def call(self, inputs, training=True, intermediates_dict=None):
-    """Call the ResNet50 model.
-
-    Args:
-      inputs: Images to compute features for.
-      training: Whether model is in training phase.
-      intermediates_dict: `None` or dictionary. If not None, accumulate feature
-        maps from intermediate blocks into the dictionary. ""
-
-    Returns:
-      Tensor with featuremap.
-    """
-    return self.build_call(inputs, training, intermediates_dict)
-
-  def restore_weights(self, filepath):
-    """Load pretrained weights.
-
-    This function loads a .h5 file from the filepath with saved model weights
-    and assigns them to the model.
-
-    Args:
-      filepath: String, path to the .h5 file
-
-    Raises:
-      ValueError: if the file referenced by `filepath` does not exist.
-    """
-    if not tf.io.gfile.exists(filepath):
-      raise ValueError('Unable to load weights from %s. You must provide a'
-                       'valid file.' % (filepath))
-
-    # Create a local copy of the weights file for h5py to be able to read it.
-    local_filename = os.path.basename(filepath)
-    tmp_filename = os.path.join(tempfile.gettempdir(), local_filename)
-    tf.io.gfile.copy(filepath, tmp_filename, overwrite=True)
-
-    # Load the content of the weights file.
-    f = h5py.File(tmp_filename, mode='r')
-    saved_layer_names = [n.decode('utf8') for n in f.attrs['layer_names']]
-
-    try:
-      # Iterate through all the layers assuming the max `depth` is 2.
-      for layer in self.layers:
-        if hasattr(layer, 'layers'):
-          for inlayer in layer.layers:
-            # Make sure the weights are in the saved model, and that we are in
-            # the innermost layer.
-            if inlayer.name not in saved_layer_names:
-              raise ValueError('Layer %s absent from the pretrained weights.'
-                               'Unable to load its weights.' % (inlayer.name))
-            if hasattr(inlayer, 'layers'):
-              raise ValueError('Layer %s is not a depth 2 layer. Unable to load'
-                               'its weights.' % (inlayer.name))
-            # Assign the weights in the current layer.
-            g = f[inlayer.name]
-            weight_names = [n.decode('utf8') for n in g.attrs['weight_names']]
-            weight_values = [g[weight_name] for weight_name in weight_names]
-            logging.info('Setting the weights for layer %s', inlayer.name)
-            inlayer.set_weights(weight_values)
-    finally:
-      # Clean up the temporary file.
-      tf.io.gfile.remove(tmp_filename)
-
-  def log_weights(self):
-    """Log backbone weights."""
-    logging.info('Logging backbone weights')
-    logging.info('------------------------')
-    for layer in self.layers:
-      if hasattr(layer, 'layers'):
-        for inlayer in layer.layers:
-          logging.info('Weights for layer: %s, inlayer % s', layer.name,
-                       inlayer.name)
-          weights = inlayer.get_weights()
-          logging.info(weights)
-      else:
-        logging.info('Layer %s does not have inner layers.', layer.name)

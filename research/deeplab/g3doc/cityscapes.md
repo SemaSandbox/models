@@ -43,7 +43,7 @@ A local training job using `xception_65` can be run with the following command:
 python deeplab/train.py \
     --logtostderr \
     --training_number_of_steps=90000 \
-    --train_split="train_fine" \
+    --train_split="train" \
     --model_variant="xception_65" \
     --atrous_rates=6 \
     --atrous_rates=12 \
@@ -95,7 +95,7 @@ command:
 # From tensorflow/models/research/
 python deeplab/eval.py \
     --logtostderr \
-    --eval_split="val_fine" \
+    --eval_split="val" \
     --model_variant="xception_65" \
     --atrous_rates=6 \
     --atrous_rates=12 \
@@ -121,7 +121,7 @@ command:
 # From tensorflow/models/research/
 python deeplab/vis.py \
     --logtostderr \
-    --vis_split="val_fine" \
+    --vis_split="val" \
     --model_variant="xception_65" \
     --atrous_rates=6 \
     --atrous_rates=12 \

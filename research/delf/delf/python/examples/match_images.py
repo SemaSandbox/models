@@ -1,4 +1,3 @@
-# Lint as: python3
 # Copyright 2017 The TensorFlow Authors All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -28,7 +27,6 @@ from __future__ import print_function
 import argparse
 import sys
 
-from absl import app
 import matplotlib
 # Needed before pyplot import for matplotlib to work properly.
 matplotlib.use('Agg')
@@ -40,6 +38,7 @@ from skimage import feature
 from skimage import measure
 from skimage import transform
 
+from tensorflow.python.platform import app
 from delf import feature_io
 
 cmd_args = None

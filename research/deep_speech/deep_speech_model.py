@@ -22,9 +22,9 @@ import tensorflow as tf
 
 # Supported rnn cells.
 SUPPORTED_RNNS = {
-    "lstm": tf.keras.layers.LSTMCell,
-    "rnn": tf.keras.layers.SimpleRNNCell,
-    "gru": tf.keras.layers.GRUCell,
+    "lstm": tf.contrib.rnn.BasicLSTMCell,
+    "rnn": tf.contrib.rnn.RNNCell,
+    "gru": tf.contrib.rnn.GRUCell,
 }
 
 # Parameters for batch normalization.
@@ -53,8 +53,9 @@ def batch_norm(inputs, training):
   Returns:
     tensor output from batch norm layer.
   """
-  return tf.keras.layers.BatchNormalization(
-      momentum=_BATCH_NORM_DECAY, epsilon=_BATCH_NORM_EPSILON)(inputs, training=training)
+  return tf.layers.batch_normalization(
+      inputs=inputs, momentum=_BATCH_NORM_DECAY, epsilon=_BATCH_NORM_EPSILON,
+      fused=True, training=training)
 
 
 def _conv_bn_layer(inputs, padding, filters, kernel_size, strides, layer_id,
@@ -80,10 +81,10 @@ def _conv_bn_layer(inputs, padding, filters, kernel_size, strides, layer_id,
   inputs = tf.pad(
       inputs,
       [[0, 0], [padding[0], padding[0]], [padding[1], padding[1]], [0, 0]])
-  inputs = tf.keras.layers.Conv2D(
-      filters=filters, kernel_size=kernel_size, strides=strides,
+  inputs = tf.layers.conv2d(
+      inputs=inputs, filters=filters, kernel_size=kernel_size, strides=strides,
       padding="valid", use_bias=False, activation=tf.nn.relu6,
-      name="cnn_{}".format(layer_id))(inputs)
+      name="cnn_{}".format(layer_id))
   return batch_norm(inputs, training)
 
 
@@ -108,15 +109,23 @@ def _rnn_layer(inputs, rnn_cell, rnn_hidden_size, layer_id, is_batch_norm,
   if is_batch_norm:
     inputs = batch_norm(inputs, training)
 
+  # Construct forward/backward RNN cells.
+  fw_cell = rnn_cell(num_units=rnn_hidden_size,
+                     name="rnn_fw_{}".format(layer_id))
+  bw_cell = rnn_cell(num_units=rnn_hidden_size,
+                     name="rnn_bw_{}".format(layer_id))
+
   if is_bidirectional:
-    rnn_outputs = tf.keras.layers.Bidirectional(
-        tf.keras.layers.RNN(rnn_cell(rnn_hidden_size),
-                            return_sequences=True))(inputs)
+    outputs, _ = tf.nn.bidirectional_dynamic_rnn(
+        cell_fw=fw_cell, cell_bw=bw_cell, inputs=inputs, dtype=tf.float32,
+        swap_memory=True)
+    rnn_outputs = tf.concat(outputs, -1)
   else:
-    rnn_outputs = tf.keras.layers.RNN(
-        rnn_cell(rnn_hidden_size), return_sequences=True)(inputs)
+    rnn_outputs = tf.nn.dynamic_rnn(
+        fw_cell, inputs, dtype=tf.float32, swap_memory=True)
 
   return rnn_outputs
+
 
 class DeepSpeech2(object):
   """Define DeepSpeech2 model."""
@@ -170,8 +179,7 @@ class DeepSpeech2(object):
 
     # FC layer with batch norm.
     inputs = batch_norm(inputs, training)
-    logits = tf.keras.layers.Dense(
-        self.num_classes, use_bias=self.use_bias, activation="softmax")(inputs)
+    logits = tf.layers.dense(inputs, self.num_classes, use_bias=self.use_bias)
 
     return logits
 

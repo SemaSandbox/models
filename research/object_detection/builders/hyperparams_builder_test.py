@@ -558,7 +558,7 @@ class KerasHyperparamsBuilderTest(tf.test.TestCase):
     result = regularizer(tf.constant(weights)).numpy()
     self.assertAllClose(np.abs(weights).sum() * 0.5, result)
 
-  def test_return_l2_regularized_weights_keras(self):
+  def test_return_l2_regularizer_weights_keras(self):
     conv_hyperparams_text_proto = """
       regularizer {
         l2_regularizer {
@@ -579,63 +579,6 @@ class KerasHyperparamsBuilderTest(tf.test.TestCase):
     weights = np.array([1., -1, 4., 2.])
     result = regularizer(tf.constant(weights)).numpy()
     self.assertAllClose(np.power(weights, 2).sum() / 2.0 * 0.42, result)
-
-  def test_return_l1_regularizer_weight_keras(self):
-    conv_hyperparams_text_proto = """
-      regularizer {
-        l1_regularizer {
-          weight: 0.5
-        }
-      }
-      initializer {
-        truncated_normal_initializer {
-        }
-      }
-    """
-    conv_hyperparams_proto = hyperparams_pb2.Hyperparams()
-    text_format.Parse(conv_hyperparams_text_proto, conv_hyperparams_proto)
-    keras_config = hyperparams_builder.KerasLayerHyperparams(
-        conv_hyperparams_proto)
-
-    regularizer_weight = keras_config.get_regularizer_weight()
-    self.assertIsInstance(regularizer_weight, float)
-    self.assertAlmostEqual(regularizer_weight, 0.5)
-
-  def test_return_l2_regularizer_weight_keras(self):
-    conv_hyperparams_text_proto = """
-      regularizer {
-        l2_regularizer {
-          weight: 0.5
-        }
-      }
-      initializer {
-        truncated_normal_initializer {
-        }
-      }
-    """
-    conv_hyperparams_proto = hyperparams_pb2.Hyperparams()
-    text_format.Parse(conv_hyperparams_text_proto, conv_hyperparams_proto)
-    keras_config = hyperparams_builder.KerasLayerHyperparams(
-        conv_hyperparams_proto)
-
-    regularizer_weight = keras_config.get_regularizer_weight()
-    self.assertIsInstance(regularizer_weight, float)
-    self.assertAlmostEqual(regularizer_weight, 0.25)
-
-  def test_return_undefined_regularizer_weight_keras(self):
-    conv_hyperparams_text_proto = """
-      initializer {
-        truncated_normal_initializer {
-        }
-      }
-    """
-    conv_hyperparams_proto = hyperparams_pb2.Hyperparams()
-    text_format.Parse(conv_hyperparams_text_proto, conv_hyperparams_proto)
-    keras_config = hyperparams_builder.KerasLayerHyperparams(
-        conv_hyperparams_proto)
-
-    regularizer_weight = keras_config.get_regularizer_weight()
-    self.assertIsNone(regularizer_weight)
 
   def test_return_non_default_batch_norm_params_keras(
       self):
@@ -723,67 +666,6 @@ class KerasHyperparamsBuilderTest(tf.test.TestCase):
     identity_layer = keras_config.build_batch_norm()
     self.assertIsInstance(identity_layer,
                           tf.keras.layers.Lambda)
-
-  def test_do_not_use_bias_if_batch_norm_center_keras(self):
-    conv_hyperparams_text_proto = """
-      regularizer {
-        l2_regularizer {
-        }
-      }
-      initializer {
-        truncated_normal_initializer {
-        }
-      }
-      batch_norm {
-        decay: 0.7
-        center: true
-        scale: true
-        epsilon: 0.03
-        train: true
-      }
-    """
-    conv_hyperparams_proto = hyperparams_pb2.Hyperparams()
-    text_format.Merge(conv_hyperparams_text_proto, conv_hyperparams_proto)
-    keras_config = hyperparams_builder.KerasLayerHyperparams(
-        conv_hyperparams_proto)
-
-    self.assertTrue(keras_config.use_batch_norm())
-    batch_norm_params = keras_config.batch_norm_params()
-    self.assertTrue(batch_norm_params['center'])
-    self.assertTrue(batch_norm_params['scale'])
-    hyperparams = keras_config.params()
-    self.assertFalse(hyperparams['use_bias'])
-
-  def test_force_use_bias_if_batch_norm_center_keras(self):
-    conv_hyperparams_text_proto = """
-      regularizer {
-        l2_regularizer {
-        }
-      }
-      initializer {
-        truncated_normal_initializer {
-        }
-      }
-      batch_norm {
-        decay: 0.7
-        center: true
-        scale: true
-        epsilon: 0.03
-        train: true
-      }
-      force_use_bias: true
-    """
-    conv_hyperparams_proto = hyperparams_pb2.Hyperparams()
-    text_format.Merge(conv_hyperparams_text_proto, conv_hyperparams_proto)
-    keras_config = hyperparams_builder.KerasLayerHyperparams(
-        conv_hyperparams_proto)
-
-    self.assertTrue(keras_config.use_batch_norm())
-    batch_norm_params = keras_config.batch_norm_params()
-    self.assertTrue(batch_norm_params['center'])
-    self.assertTrue(batch_norm_params['scale'])
-    hyperparams = keras_config.params()
-    self.assertTrue(hyperparams['use_bias'])
 
   def test_use_none_activation_keras(self):
     conv_hyperparams_text_proto = """
@@ -1029,27 +911,6 @@ class KerasHyperparamsBuilderTest(tf.test.TestCase):
     initializer = keras_config.params()['kernel_initializer']
     self._assert_variance_in_range(initializer, shape=[100, 40],
                                    variance=0.64, tol=1e-1)
-
-  def test_keras_initializer_by_name(self):
-    conv_hyperparams_text_proto = """
-      regularizer {
-        l2_regularizer {
-        }
-      }
-      initializer {
-        keras_initializer_by_name: "glorot_uniform"
-      }
-    """
-    conv_hyperparams_proto = hyperparams_pb2.Hyperparams()
-    text_format.Parse(conv_hyperparams_text_proto, conv_hyperparams_proto)
-    keras_config = hyperparams_builder.KerasLayerHyperparams(
-        conv_hyperparams_proto)
-    initializer_arg = keras_config.params()['kernel_initializer']
-    conv_layer = tf.keras.layers.Conv2D(
-        filters=16, kernel_size=3, **keras_config.params())
-    self.assertEqual(initializer_arg, 'glorot_uniform')
-    self.assertIsInstance(conv_layer.kernel_initializer,
-                          type(tf.keras.initializers.get('glorot_uniform')))
 
 if __name__ == '__main__':
   tf.test.main()

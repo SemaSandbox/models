@@ -68,6 +68,6 @@ Quick running the whole code on the PASCAL VOC 2012 dataset:
 
 ```bash
 # From tensorflow/models/research/deeplab
-bash local_test.sh
+sh local_test.sh
 ```
 

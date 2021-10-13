@@ -51,20 +51,19 @@ download_and_uncompress() {
     wget -nd -c "${BASE_URL}/${FILENAME}"
   fi
   echo "Uncompressing ${FILENAME}"
-  sudo apt install unzip
-  unzip "${FILENAME}"
+  tar -xf "${FILENAME}"
 }
 
 # Download the images.
-BASE_URL="https://data.deepai.org/"
-FILENAME="PascalVOC2012.zip"
+BASE_URL="http://host.robots.ox.ac.uk/pascal/VOC/voc2012/"
+FILENAME="VOCtrainval_11-May-2012.tar"
 
 download_and_uncompress "${BASE_URL}" "${FILENAME}"
 
 cd "${CURRENT_DIR}"
 
 # Root path for PASCAL VOC 2012 dataset.
-PASCAL_ROOT="${WORK_DIR}/VOC2012"
+PASCAL_ROOT="${WORK_DIR}/VOCdevkit/VOC2012"
 
 # Remove the colormap in the ground truth annotations.
 SEG_FOLDER="${PASCAL_ROOT}/SegmentationClass"

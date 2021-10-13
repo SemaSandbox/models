@@ -43,6 +43,7 @@ from object_detection.utils import visualization_utils as vis_utils
 # pylint: disable=g-import-not-at-top
 try:
   from tensorflow.contrib import learn as contrib_learn
+  from tensorflow.contrib import tpu as contrib_tpu
 except ImportError:
   # TF 2.0 doesn't ship with contrib.
   pass
@@ -93,27 +94,10 @@ def _prepare_groundtruth_for_eval(detection_model, class_agnostic,
         of groundtruth boxes per image..
       'groundtruth_keypoints': [batch_size, num_boxes, num_keypoints, 2] float32
         tensor of keypoints (if provided in groundtruth).
-      'groundtruth_dp_num_points_list': [batch_size, num_boxes] int32 tensor
-        with the number of DensePose points for each instance (if provided in
-        groundtruth).
-      'groundtruth_dp_part_ids_list': [batch_size, num_boxes,
-        max_sampled_points] int32 tensor with the part ids for each DensePose
-        sampled point (if provided in groundtruth).
-      'groundtruth_dp_surface_coords_list': [batch_size, num_boxes,
-        max_sampled_points, 4] containing the DensePose surface coordinates for
-        each sampled point (if provided in groundtruth).
-      'groundtruth_track_ids_list': [batch_size, num_boxes] int32 tensor
-        with track ID for each instance (if provided in groundtruth).
       'groundtruth_group_of': [batch_size, num_boxes] bool tensor indicating
         group_of annotations (if provided in groundtruth).
       'groundtruth_labeled_classes': [batch_size, num_classes] int64
         tensor of 1-indexed classes.
-      'groundtruth_verified_neg_classes': [batch_size, num_classes] float32
-        K-hot representation of 1-indexed classes which were verified as not
-        present in the image.
-      'groundtruth_not_exhaustive_classes': [batch_size, num_classes] K-hot
-        representation of 1-indexed classes which don't have all of their
-        instances marked exhaustively.
     class_agnostic: Boolean indicating whether detections are class agnostic.
   """
   input_data_fields = fields.InputDataFields()
@@ -135,7 +119,6 @@ def _prepare_groundtruth_for_eval(detection_model, class_agnostic,
       input_data_fields.groundtruth_boxes: groundtruth_boxes,
       input_data_fields.groundtruth_classes: groundtruth_classes
   }
-
   if detection_model.groundtruth_has_field(fields.BoxListFields.masks):
     groundtruth[input_data_fields.groundtruth_instance_masks] = tf.stack(
         detection_model.groundtruth_lists(fields.BoxListFields.masks))
@@ -153,15 +136,6 @@ def _prepare_groundtruth_for_eval(detection_model, class_agnostic,
         detection_model.groundtruth_lists(fields.BoxListFields.keypoints))
 
   if detection_model.groundtruth_has_field(
-      fields.BoxListFields.keypoint_depths):
-    groundtruth[input_data_fields.groundtruth_keypoint_depths] = tf.stack(
-        detection_model.groundtruth_lists(fields.BoxListFields.keypoint_depths))
-    groundtruth[
-        input_data_fields.groundtruth_keypoint_depth_weights] = tf.stack(
-            detection_model.groundtruth_lists(
-                fields.BoxListFields.keypoint_depth_weights))
-
-  if detection_model.groundtruth_has_field(
       fields.BoxListFields.keypoint_visibilities):
     groundtruth[input_data_fields.groundtruth_keypoint_visibilities] = tf.stack(
         detection_model.groundtruth_lists(
@@ -171,49 +145,24 @@ def _prepare_groundtruth_for_eval(detection_model, class_agnostic,
     groundtruth[input_data_fields.groundtruth_group_of] = tf.stack(
         detection_model.groundtruth_lists(fields.BoxListFields.group_of))
 
-  label_id_offset_paddings = tf.constant([[0, 0], [1, 0]])
   if detection_model.groundtruth_has_field(
-      input_data_fields.groundtruth_verified_neg_classes):
-    groundtruth[input_data_fields.groundtruth_verified_neg_classes] = tf.pad(
-        tf.stack(detection_model.groundtruth_lists(
-            input_data_fields.groundtruth_verified_neg_classes)),
-        label_id_offset_paddings)
-
-  if detection_model.groundtruth_has_field(
-      input_data_fields.groundtruth_not_exhaustive_classes):
-    groundtruth[
-        input_data_fields.groundtruth_not_exhaustive_classes] = tf.pad(
-            tf.stack(detection_model.groundtruth_lists(
-                input_data_fields.groundtruth_not_exhaustive_classes)),
-            label_id_offset_paddings)
-
-  if detection_model.groundtruth_has_field(
-      fields.BoxListFields.densepose_num_points):
-    groundtruth[input_data_fields.groundtruth_dp_num_points] = tf.stack(
-        detection_model.groundtruth_lists(
-            fields.BoxListFields.densepose_num_points))
-  if detection_model.groundtruth_has_field(
-      fields.BoxListFields.densepose_part_ids):
-    groundtruth[input_data_fields.groundtruth_dp_part_ids] = tf.stack(
-        detection_model.groundtruth_lists(
-            fields.BoxListFields.densepose_part_ids))
-  if detection_model.groundtruth_has_field(
-      fields.BoxListFields.densepose_surface_coords):
-    groundtruth[input_data_fields.groundtruth_dp_surface_coords] = tf.stack(
-        detection_model.groundtruth_lists(
-            fields.BoxListFields.densepose_surface_coords))
-
-  if detection_model.groundtruth_has_field(fields.BoxListFields.track_ids):
-    groundtruth[input_data_fields.groundtruth_track_ids] = tf.stack(
-        detection_model.groundtruth_lists(fields.BoxListFields.track_ids))
-
-  if detection_model.groundtruth_has_field(
-      input_data_fields.groundtruth_labeled_classes):
-    groundtruth[input_data_fields.groundtruth_labeled_classes] = tf.pad(
-        tf.stack(
-            detection_model.groundtruth_lists(
-                input_data_fields.groundtruth_labeled_classes)),
-        label_id_offset_paddings)
+      fields.InputDataFields.groundtruth_labeled_classes):
+    labeled_classes_list = detection_model.groundtruth_lists(
+        fields.InputDataFields.groundtruth_labeled_classes)
+    labeled_classes = [
+        tf.where(x)[:, 0] + label_id_offset for x in labeled_classes_list
+    ]
+    if len(labeled_classes) > 1:
+      num_classes = labeled_classes_list[0].shape[0]
+      padded_labeled_classes = []
+      for x in labeled_classes:
+        padding = num_classes - tf.shape(x)[0]
+        padded_labeled_classes.append(tf.pad(x, [[0, padding]]))
+      groundtruth[input_data_fields.groundtruth_labeled_classes] = tf.stack(
+          padded_labeled_classes)
+    else:
+      groundtruth[input_data_fields.groundtruth_labeled_classes] = tf.stack(
+          labeled_classes)
 
   groundtruth[input_data_fields.num_groundtruth_boxes] = (
       tf.tile([max_number_of_boxes], multiples=[groundtruth_boxes_shape[0]]))
@@ -266,17 +215,10 @@ def unstack_batch(tensor_dict, unpad_groundtruth_tensors=True):
         # dimension. This list has to be kept in sync with InputDataFields in
         # standard_fields.py.
         fields.InputDataFields.groundtruth_instance_masks,
-        fields.InputDataFields.groundtruth_instance_mask_weights,
         fields.InputDataFields.groundtruth_classes,
         fields.InputDataFields.groundtruth_boxes,
         fields.InputDataFields.groundtruth_keypoints,
-        fields.InputDataFields.groundtruth_keypoint_depths,
-        fields.InputDataFields.groundtruth_keypoint_depth_weights,
         fields.InputDataFields.groundtruth_keypoint_visibilities,
-        fields.InputDataFields.groundtruth_dp_num_points,
-        fields.InputDataFields.groundtruth_dp_part_ids,
-        fields.InputDataFields.groundtruth_dp_surface_coords,
-        fields.InputDataFields.groundtruth_track_ids,
         fields.InputDataFields.groundtruth_group_of,
         fields.InputDataFields.groundtruth_difficult,
         fields.InputDataFields.groundtruth_is_crowd,
@@ -320,40 +262,13 @@ def provide_groundtruth(model, labels):
   if fields.InputDataFields.groundtruth_instance_masks in labels:
     gt_masks_list = labels[
         fields.InputDataFields.groundtruth_instance_masks]
-  gt_mask_weights_list = None
-  if fields.InputDataFields.groundtruth_instance_mask_weights in labels:
-    gt_mask_weights_list = labels[
-        fields.InputDataFields.groundtruth_instance_mask_weights]
   gt_keypoints_list = None
   if fields.InputDataFields.groundtruth_keypoints in labels:
     gt_keypoints_list = labels[fields.InputDataFields.groundtruth_keypoints]
-  gt_keypoint_depths_list = None
-  gt_keypoint_depth_weights_list = None
-  if fields.InputDataFields.groundtruth_keypoint_depths in labels:
-    gt_keypoint_depths_list = (
-        labels[fields.InputDataFields.groundtruth_keypoint_depths])
-    gt_keypoint_depth_weights_list = (
-        labels[fields.InputDataFields.groundtruth_keypoint_depth_weights])
   gt_keypoint_visibilities_list = None
   if fields.InputDataFields.groundtruth_keypoint_visibilities in labels:
     gt_keypoint_visibilities_list = labels[
         fields.InputDataFields.groundtruth_keypoint_visibilities]
-  gt_dp_num_points_list = None
-  if fields.InputDataFields.groundtruth_dp_num_points in labels:
-    gt_dp_num_points_list = labels[
-        fields.InputDataFields.groundtruth_dp_num_points]
-  gt_dp_part_ids_list = None
-  if fields.InputDataFields.groundtruth_dp_part_ids in labels:
-    gt_dp_part_ids_list = labels[
-        fields.InputDataFields.groundtruth_dp_part_ids]
-  gt_dp_surface_coords_list = None
-  if fields.InputDataFields.groundtruth_dp_surface_coords in labels:
-    gt_dp_surface_coords_list = labels[
-        fields.InputDataFields.groundtruth_dp_surface_coords]
-  gt_track_ids_list = None
-  if fields.InputDataFields.groundtruth_track_ids in labels:
-    gt_track_ids_list = labels[
-        fields.InputDataFields.groundtruth_track_ids]
   gt_weights_list = None
   if fields.InputDataFields.groundtruth_weights in labels:
     gt_weights_list = labels[fields.InputDataFields.groundtruth_weights]
@@ -374,38 +289,21 @@ def provide_groundtruth(model, labels):
   if fields.InputDataFields.groundtruth_labeled_classes in labels:
     gt_labeled_classes = labels[
         fields.InputDataFields.groundtruth_labeled_classes]
-  gt_verified_neg_classes = None
-  if fields.InputDataFields.groundtruth_verified_neg_classes in labels:
-    gt_verified_neg_classes = labels[
-        fields.InputDataFields.groundtruth_verified_neg_classes]
-  gt_not_exhaustive_classes = None
-  if fields.InputDataFields.groundtruth_not_exhaustive_classes in labels:
-    gt_not_exhaustive_classes = labels[
-        fields.InputDataFields.groundtruth_not_exhaustive_classes]
   model.provide_groundtruth(
       groundtruth_boxes_list=gt_boxes_list,
       groundtruth_classes_list=gt_classes_list,
       groundtruth_confidences_list=gt_confidences_list,
       groundtruth_labeled_classes=gt_labeled_classes,
       groundtruth_masks_list=gt_masks_list,
-      groundtruth_mask_weights_list=gt_mask_weights_list,
       groundtruth_keypoints_list=gt_keypoints_list,
       groundtruth_keypoint_visibilities_list=gt_keypoint_visibilities_list,
-      groundtruth_dp_num_points_list=gt_dp_num_points_list,
-      groundtruth_dp_part_ids_list=gt_dp_part_ids_list,
-      groundtruth_dp_surface_coords_list=gt_dp_surface_coords_list,
       groundtruth_weights_list=gt_weights_list,
       groundtruth_is_crowd_list=gt_is_crowd_list,
       groundtruth_group_of_list=gt_group_of_list,
-      groundtruth_area_list=gt_area_list,
-      groundtruth_track_ids_list=gt_track_ids_list,
-      groundtruth_verified_neg_classes=gt_verified_neg_classes,
-      groundtruth_not_exhaustive_classes=gt_not_exhaustive_classes,
-      groundtruth_keypoint_depths_list=gt_keypoint_depths_list,
-      groundtruth_keypoint_depth_weights_list=gt_keypoint_depth_weights_list)
+      groundtruth_area_list=gt_area_list)
 
 
-def create_model_fn(detection_model_fn, configs, hparams=None, use_tpu=False,
+def create_model_fn(detection_model_fn, configs, hparams, use_tpu=False,
                     postprocess_on_cpu=False):
   """Creates a model function for `Estimator`.
 
@@ -448,9 +346,11 @@ def create_model_fn(detection_model_fn, configs, hparams=None, use_tpu=False,
     tf.keras.backend.set_learning_phase(is_training)
     # Set policy for mixed-precision training with Keras-based models.
     if use_tpu and train_config.use_bfloat16:
+      from tensorflow.python.keras.engine import base_layer_utils  # pylint: disable=g-import-not-at-top
       # Enable v2 behavior, as `mixed_bfloat16` is only supported in TF 2.0.
-      tf.keras.layers.enable_v2_dtype_behavior()
-      tf2.keras.mixed_precision.set_global_policy('mixed_bfloat16')
+      base_layer_utils.enable_v2_dtype_behavior()
+      tf2.keras.mixed_precision.experimental.set_policy(
+          'mixed_bfloat16')
     detection_model = detection_model_fn(
         is_training=is_training, add_summaries=(not use_tpu))
     scaffold_fn = None
@@ -477,7 +377,7 @@ def create_model_fn(detection_model_fn, configs, hparams=None, use_tpu=False,
     side_inputs = detection_model.get_side_inputs(features)
 
     if use_tpu and train_config.use_bfloat16:
-      with tf.tpu.bfloat16_scope():
+      with contrib_tpu.bfloat16_scope():
         prediction_dict = detection_model.predict(
             preprocessed_images,
             features[fields.InputDataFields.true_image_shape], **side_inputs)
@@ -492,7 +392,7 @@ def create_model_fn(detection_model_fn, configs, hparams=None, use_tpu=False,
 
     if mode in (tf.estimator.ModeKeys.EVAL, tf.estimator.ModeKeys.PREDICT):
       if use_tpu and postprocess_on_cpu:
-        detections = tf.tpu.outside_compilation(
+        detections = contrib_tpu.outside_compilation(
             postprocess_wrapper,
             (prediction_dict,
              features[fields.InputDataFields.true_image_shape]))
@@ -568,7 +468,7 @@ def create_model_fn(detection_model_fn, configs, hparams=None, use_tpu=False,
 
     if mode == tf.estimator.ModeKeys.TRAIN:
       if use_tpu:
-        training_optimizer = tf.tpu.CrossShardOptimizer(training_optimizer)
+        training_optimizer = contrib_tpu.CrossShardOptimizer(training_optimizer)
 
       # Optionally freeze some layers by setting their gradients to be zero.
       trainable_variables = None
@@ -688,7 +588,7 @@ def create_model_fn(detection_model_fn, configs, hparams=None, use_tpu=False,
 
     # EVAL executes on CPU, so use regular non-TPU EstimatorSpec.
     if use_tpu and mode != tf.estimator.ModeKeys.EVAL:
-      return tf.estimator.tpu.TPUEstimatorSpec(
+      return contrib_tpu.TPUEstimatorSpec(
           mode=mode,
           scaffold_fn=scaffold_fn,
           predictions=detections,
@@ -719,8 +619,8 @@ def create_model_fn(detection_model_fn, configs, hparams=None, use_tpu=False,
 
 
 def create_estimator_and_inputs(run_config,
-                                hparams=None,
-                                pipeline_config_path=None,
+                                hparams,
+                                pipeline_config_path,
                                 config_override=None,
                                 train_steps=None,
                                 sample_1_of_n_eval_examples=1,
@@ -739,7 +639,7 @@ def create_estimator_and_inputs(run_config,
 
   Args:
     run_config: A `RunConfig`.
-    hparams: (optional) A `HParams`.
+    hparams: A `HParams`.
     pipeline_config_path: A path to a pipeline config file.
     config_override: A pipeline_pb2.TrainEvalPipelineConfig text proto to
       override the config from `pipeline_config_path`.
@@ -845,14 +745,12 @@ def create_estimator_and_inputs(run_config,
       train_config=train_config,
       train_input_config=train_input_config,
       model_config=model_config)
-  eval_input_fns = []
-  for eval_input_config in eval_input_configs:
-    eval_input_fns.append(
-        create_eval_input_fn(
-            eval_config=eval_config,
-            eval_input_config=eval_input_config,
-            model_config=model_config))
-
+  eval_input_fns = [
+      create_eval_input_fn(
+          eval_config=eval_config,
+          eval_input_config=eval_input_config,
+          model_config=model_config) for eval_input_config in eval_input_configs
+  ]
   eval_input_names = [
       eval_input_config.name for eval_input_config in eval_input_configs
   ]
@@ -864,14 +762,14 @@ def create_estimator_and_inputs(run_config,
       model_config=model_config, predict_input_config=eval_input_configs[0])
 
   # Read export_to_tpu from hparams if not passed.
-  if export_to_tpu is None and hparams is not None:
+  if export_to_tpu is None:
     export_to_tpu = hparams.get('export_to_tpu', False)
   tf.logging.info('create_estimator_and_inputs: use_tpu %s, export_to_tpu %s',
                   use_tpu, export_to_tpu)
   model_fn = model_fn_creator(detection_model_fn, configs, hparams, use_tpu,
                               postprocess_on_cpu)
   if use_tpu_estimator:
-    estimator = tf.estimator.tpu.TPUEstimator(
+    estimator = contrib_tpu.TPUEstimator(
         model_fn=model_fn,
         train_batch_size=train_config.batch_size,
         # For each core, only batch size 1 is supported for eval.
@@ -995,12 +893,12 @@ def _evaluate_checkpoint(estimator,
         raise e
 
 
-def continuous_eval_generator(estimator,
-                              model_dir,
-                              input_fn,
-                              train_steps,
-                              name,
-                              max_retries=0):
+def continuous_eval(estimator,
+                    model_dir,
+                    input_fn,
+                    train_steps,
+                    name,
+                    max_retries=0):
   """Perform continuous evaluation on checkpoints written to a model directory.
 
   Args:
@@ -1013,9 +911,6 @@ def continuous_eval_generator(estimator,
     max_retries: Maximum number of times to retry the evaluation on encountering
       a tf.errors.InvalidArgumentError. If negative, will always retry the
       evaluation.
-
-  Yields:
-    Pair of current step and eval_results.
   """
 
   def terminate_eval():
@@ -1038,7 +933,6 @@ def continuous_eval_generator(estimator,
 
       # Terminate eval job when final checkpoint is reached
       current_step = int(os.path.basename(ckpt).split('-')[1])
-      yield (current_step, eval_results)
       if current_step >= train_steps:
         tf.logging.info(
             'Evaluation finished after training step %d' % current_step)
@@ -1047,30 +941,6 @@ def continuous_eval_generator(estimator,
     except tf.errors.NotFoundError:
       tf.logging.info(
           'Checkpoint %s no longer exists, skipping checkpoint' % ckpt)
-
-
-def continuous_eval(estimator,
-                    model_dir,
-                    input_fn,
-                    train_steps,
-                    name,
-                    max_retries=0):
-  """Performs continuous evaluation on checkpoints written to a model directory.
-
-  Args:
-    estimator: Estimator object to use for evaluation.
-    model_dir: Model directory to read checkpoints for continuous evaluation.
-    input_fn: Input function to use for evaluation.
-    train_steps: Number of training steps. This is used to infer the last
-      checkpoint and stop evaluation loop.
-    name: Namescope for eval summary.
-    max_retries: Maximum number of times to retry the evaluation on encountering
-      a tf.errors.InvalidArgumentError. If negative, will always retry the
-      evaluation.
-  """
-  for current_step, eval_results in continuous_eval_generator(
-      estimator, model_dir, input_fn, train_steps, name, max_retries):
-    tf.logging.info('Step %s, Eval results: %s', current_step, eval_results)
 
 
 def populate_experiment(run_config,

@@ -134,7 +134,7 @@ class BoxPredictor(object):
     pass
 
 
-class KerasBoxPredictor(tf.keras.layers.Layer):
+class KerasBoxPredictor(tf.keras.Model):
   """Keras-based BoxPredictor."""
 
   def __init__(self, is_training, num_classes, freeze_batchnorm,

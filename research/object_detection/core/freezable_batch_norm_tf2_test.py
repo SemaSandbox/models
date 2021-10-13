@@ -17,40 +17,25 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
 import unittest
-
-from absl.testing import parameterized
 import numpy as np
 from six.moves import zip
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 from object_detection.core import freezable_batch_norm
 from object_detection.utils import tf_version
 
-# pylint: disable=g-import-not-at-top
-if tf_version.is_tf2():
-  from object_detection.core import freezable_sync_batch_norm
-# pylint: enable=g-import-not-at-top
-
 
 @unittest.skipIf(tf_version.is_tf1(), 'Skipping TF2.X only test.')
-class FreezableBatchNormTest(tf.test.TestCase, parameterized.TestCase):
+class FreezableBatchNormTest(tf.test.TestCase):
   """Tests for FreezableBatchNorm operations."""
 
-  def _build_model(self, use_sync_batch_norm, training=None):
+  def _build_model(self, training=None):
     model = tf.keras.models.Sequential()
-    norm = None
-    if use_sync_batch_norm:
-      norm = freezable_sync_batch_norm.FreezableSyncBatchNorm(training=training,
-                                                              input_shape=(10,),
-                                                              momentum=0.8)
-    else:
-      norm = freezable_batch_norm.FreezableBatchNorm(training=training,
-                                                     input_shape=(10,),
-                                                     momentum=0.8)
-
+    norm = freezable_batch_norm.FreezableBatchNorm(training=training,
+                                                   input_shape=(10,),
+                                                   momentum=0.8)
     model.add(norm)
     return model, norm
 
@@ -58,9 +43,8 @@ class FreezableBatchNormTest(tf.test.TestCase, parameterized.TestCase):
     for source, target in zip(source_weights, target_weights):
       target.assign(source)
 
-  def _train_freezable_batch_norm(self, training_mean, training_var,
-                                  use_sync_batch_norm):
-    model, _ = self._build_model(use_sync_batch_norm=use_sync_batch_norm)
+  def _train_freezable_batch_norm(self, training_mean, training_var):
+    model, _ = self._build_model()
     model.compile(loss='mse', optimizer='sgd')
 
     # centered on training_mean, variance training_var
@@ -88,8 +72,7 @@ class FreezableBatchNormTest(tf.test.TestCase, parameterized.TestCase):
     np.testing.assert_allclose(out.numpy().mean(), 0.0, atol=1.5e-1)
     np.testing.assert_allclose(out.numpy().std(), 1.0, atol=1.5e-1)
 
-  @parameterized.parameters(True, False)
-  def test_batchnorm_freezing_training_none(self, use_sync_batch_norm):
+  def test_batchnorm_freezing_training_none(self):
     training_mean = 5.0
     training_var = 10.0
 
@@ -98,13 +81,12 @@ class FreezableBatchNormTest(tf.test.TestCase, parameterized.TestCase):
 
     # Initially train the batch norm, and save the weights
     trained_weights = self._train_freezable_batch_norm(training_mean,
-                                                       training_var,
-                                                       use_sync_batch_norm)
+                                                       training_var)
 
     # Load the batch norm weights, freezing training to True.
     # Apply the batch norm layer to testing data and ensure it is normalized
     # according to the batch statistics.
-    model, norm = self._build_model(use_sync_batch_norm, training=True)
+    model, norm = self._build_model(training=True)
     self._copy_weights(trained_weights, model.weights)
 
     # centered on testing_mean, variance testing_var
@@ -154,8 +136,7 @@ class FreezableBatchNormTest(tf.test.TestCase, parameterized.TestCase):
                                testing_mean, testing_var, training_arg,
                                training_mean, training_var)
 
-  @parameterized.parameters(True, False)
-  def test_batchnorm_freezing_training_false(self, use_sync_batch_norm):
+  def test_batchnorm_freezing_training_false(self):
     training_mean = 5.0
     training_var = 10.0
 
@@ -164,13 +145,12 @@ class FreezableBatchNormTest(tf.test.TestCase, parameterized.TestCase):
 
     # Initially train the batch norm, and save the weights
     trained_weights = self._train_freezable_batch_norm(training_mean,
-                                                       training_var,
-                                                       use_sync_batch_norm)
+                                                       training_var)
 
     # Load the batch norm back up, freezing training to False.
     # Apply the batch norm layer to testing data and ensure it is normalized
     # according to the training data's statistics.
-    model, norm = self._build_model(use_sync_batch_norm, training=False)
+    model, norm = self._build_model(training=False)
     self._copy_weights(trained_weights, model.weights)
 
     # centered on testing_mean, variance testing_var

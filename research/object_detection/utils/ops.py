@@ -216,13 +216,13 @@ def pad_to_multiple(tensor, multiple):
     height_pad = tf.zeros([
         batch_size, padded_tensor_height - tensor_height, tensor_width,
         tensor_depth
-    ], dtype=tensor.dtype)
+    ])
     tensor = tf.concat([tensor, height_pad], 1)
   if padded_tensor_width != tensor_width:
     width_pad = tf.zeros([
         batch_size, padded_tensor_height, padded_tensor_width - tensor_width,
         tensor_depth
-    ], dtype=tensor.dtype)
+    ])
     tensor = tf.concat([tensor, width_pad], 2)
 
   return tensor
@@ -798,40 +798,15 @@ def position_sensitive_crop_regions(image,
   return position_sensitive_features
 
 
-def reframe_image_corners_relative_to_boxes(boxes):
-  """Reframe the image corners ([0, 0, 1, 1]) to be relative to boxes.
-
-  The local coordinate frame of each box is assumed to be relative to
-  its own for corners.
-
-  Args:
-    boxes: A float tensor of [num_boxes, 4] of (ymin, xmin, ymax, xmax)
-      coordinates in relative coordinate space of each bounding box.
-
-  Returns:
-    reframed_boxes: Reframes boxes with same shape as input.
-  """
-  ymin, xmin, ymax, xmax = tf.unstack(boxes, axis=1)
-
-  height = tf.maximum(ymax - ymin, 1e-4)
-  width = tf.maximum(xmax - xmin, 1e-4)
-
-  ymin_out = (0 - ymin) / height
-  xmin_out = (0 - xmin) / width
-  ymax_out = (1 - ymin) / height
-  xmax_out = (1 - xmin) / width
-  return tf.stack([ymin_out, xmin_out, ymax_out, xmax_out], axis=1)
-
-
 def reframe_box_masks_to_image_masks(box_masks, boxes, image_height,
-                                     image_width, resize_method='bilinear'):
+                                     image_width):
   """Transforms the box masks back to full image masks.
 
   Embeds masks in bounding boxes of larger masks whose shapes correspond to
   image shape.
 
   Args:
-    box_masks: A tensor of size [num_masks, mask_height, mask_width].
+    box_masks: A tf.float32 tensor of size [num_masks, mask_height, mask_width].
     boxes: A tf.float32 tensor of size [num_masks, 4] containing the box
            corners. Row i contains [ymin, xmin, ymax, xmax] of the box
            corresponding to mask i. Note that the box corners are in
@@ -840,37 +815,41 @@ def reframe_box_masks_to_image_masks(box_masks, boxes, image_height,
                   the image height.
     image_width: Image width. The output mask will have the same width as the
                  image width.
-    resize_method: The resize method, either 'bilinear' or 'nearest'. Note that
-      'bilinear' is only respected if box_masks is a float.
 
   Returns:
-    A tensor of size [num_masks, image_height, image_width] with the same dtype
-    as `box_masks`.
+    A tf.float32 tensor of size [num_masks, image_height, image_width].
   """
-  resize_method = 'nearest' if box_masks.dtype == tf.uint8 else resize_method
   # TODO(rathodv): Make this a public function.
   def reframe_box_masks_to_image_masks_default():
     """The default function when there are more than 0 box masks."""
+    def transform_boxes_relative_to_boxes(boxes, reference_boxes):
+      boxes = tf.reshape(boxes, [-1, 2, 2])
+      min_corner = tf.expand_dims(reference_boxes[:, 0:2], 1)
+      max_corner = tf.expand_dims(reference_boxes[:, 2:4], 1)
+      denom = max_corner - min_corner
+      # Prevent a divide by zero.
+      denom = tf.math.maximum(denom, 1e-4)
+      transformed_boxes = (boxes - min_corner) / denom
+      return tf.reshape(transformed_boxes, [-1, 4])
 
-    num_boxes = tf.shape(box_masks)[0]
     box_masks_expanded = tf.expand_dims(box_masks, axis=3)
+    num_boxes = tf.shape(box_masks_expanded)[0]
+    unit_boxes = tf.concat(
+        [tf.zeros([num_boxes, 2]), tf.ones([num_boxes, 2])], axis=1)
+    reverse_boxes = transform_boxes_relative_to_boxes(unit_boxes, boxes)
 
     # TODO(vighneshb) Use matmul_crop_and_resize so that the output shape
     # is static. This will help us run and test on TPUs.
-
-    resized_crops = tf.image.crop_and_resize(
+    return tf.image.crop_and_resize(
         image=box_masks_expanded,
-        boxes=reframe_image_corners_relative_to_boxes(boxes),
+        boxes=reverse_boxes,
         box_ind=tf.range(num_boxes),
         crop_size=[image_height, image_width],
-        method=resize_method,
-        extrapolation_value=0)
-    return tf.cast(resized_crops, box_masks.dtype)
-
+        extrapolation_value=0.0)
   image_masks = tf.cond(
       tf.shape(box_masks)[0] > 0,
       reframe_box_masks_to_image_masks_default,
-      lambda: tf.zeros([0, image_height, image_width, 1], box_masks.dtype))
+      lambda: tf.zeros([0, image_height, image_width, 1], dtype=tf.float32))
   return tf.squeeze(image_masks, axis=3)
 
 
@@ -962,8 +941,7 @@ def merge_boxes_with_multiple_labels(boxes,
 
 
 def nearest_neighbor_upsampling(input_tensor, scale=None, height_scale=None,
-                                width_scale=None,
-                                name='nearest_neighbor_upsampling'):
+                                width_scale=None):
   """Nearest neighbor upsampling implementation.
 
   Nearest neighbor upsampling function that maps input tensor with shape
@@ -980,7 +958,6 @@ def nearest_neighbor_upsampling(input_tensor, scale=None, height_scale=None,
       option when provided overrides `scale` option.
     width_scale: An integer multiple to scale the width of input image. This
       option when provided overrides `scale` option.
-    name: A name for the operation (optional).
   Returns:
     data_up: A float32 tensor of size
       [batch, height_in*scale, width_in*scale, channels].
@@ -992,13 +969,13 @@ def nearest_neighbor_upsampling(input_tensor, scale=None, height_scale=None,
   if not scale and (height_scale is None or width_scale is None):
     raise ValueError('Provide either `scale` or `height_scale` and'
                      ' `width_scale`.')
-  with tf.name_scope(name):
+  with tf.name_scope('nearest_neighbor_upsampling'):
     h_scale = scale if height_scale is None else height_scale
     w_scale = scale if width_scale is None else width_scale
     (batch_size, height, width,
      channels) = shape_utils.combined_static_and_dynamic_shape(input_tensor)
-    output_tensor = tf.stack([input_tensor] * w_scale, axis=3, name='w_stack')
-    output_tensor = tf.stack([output_tensor] * h_scale, axis=2, name='h_stack')
+    output_tensor = tf.stack([input_tensor] * w_scale, axis=3)
+    output_tensor = tf.stack([output_tensor] * h_scale, axis=2)
     return tf.reshape(output_tensor,
                       [batch_size, height * h_scale, width * w_scale, channels])
 
@@ -1150,57 +1127,3 @@ def decode_image(tensor_dict):
       tensor_dict[fields.InputDataFields.image], channels=3)
   tensor_dict[fields.InputDataFields.image].set_shape([None, None, 3])
   return tensor_dict
-
-
-def giou(boxes1, boxes2):
-  """Computes generalized IOU between two tensors.
-
-  Each box should be represented as [ymin, xmin, ymax, xmax].
-
-  Args:
-    boxes1: a tensor with shape [num_boxes, 4]
-    boxes2: a tensor with shape [num_boxes, 4]
-
-  Returns:
-    a tensor of shape [num_boxes] containing GIoUs
-
-  """
-  pred_ymin, pred_xmin, pred_ymax, pred_xmax = tf.unstack(boxes1, axis=1)
-  gt_ymin, gt_xmin, gt_ymax, gt_xmax = tf.unstack(boxes2, axis=1)
-
-  gt_area = (gt_ymax - gt_ymin) * (gt_xmax - gt_xmin)
-  pred_area = (pred_ymax - pred_ymin) * (pred_xmax - pred_xmin)
-
-  x1_i = tf.maximum(pred_xmin, gt_xmin)
-  x2_i = tf.minimum(pred_xmax, gt_xmax)
-  y1_i = tf.maximum(pred_ymin, gt_ymin)
-  y2_i = tf.minimum(pred_ymax, gt_ymax)
-  intersection_area = tf.maximum(0.0, y2_i - y1_i) * tf.maximum(0.0,
-                                                                x2_i - x1_i)
-
-  x1_c = tf.minimum(pred_xmin, gt_xmin)
-  x2_c = tf.maximum(pred_xmax, gt_xmax)
-  y1_c = tf.minimum(pred_ymin, gt_ymin)
-  y2_c = tf.maximum(pred_ymax, gt_ymax)
-  hull_area = (y2_c - y1_c) * (x2_c - x1_c)
-
-  union_area = gt_area + pred_area - intersection_area
-  iou = tf.where(tf.equal(union_area, 0.0),
-                 tf.zeros_like(union_area), intersection_area / union_area)
-  giou_ = iou - tf.where(hull_area > 0.0,
-                         (hull_area - union_area) / hull_area, iou)
-  return giou_
-
-
-def center_to_corner_coordinate(input_tensor):
-  """Converts input boxes from center to corner representation."""
-  reshaped_encodings = tf.reshape(input_tensor, [-1, 4])
-  ycenter = tf.gather(reshaped_encodings, [0], axis=1)
-  xcenter = tf.gather(reshaped_encodings, [1], axis=1)
-  h = tf.gather(reshaped_encodings, [2], axis=1)
-  w = tf.gather(reshaped_encodings, [3], axis=1)
-  ymin = ycenter - h / 2.
-  xmin = xcenter - w / 2.
-  ymax = ycenter + h / 2.
-  xmax = xcenter + w / 2.
-  return tf.squeeze(tf.stack([ymin, xmin, ymax, xmax], axis=1))

@@ -113,23 +113,17 @@ def _get_files(data, dataset_split):
 
   Args:
     data: String, desired data ('image' or 'label').
-    dataset_split: String, dataset split ('train_fine', 'val_fine', 'test_fine')
+    dataset_split: String, dataset split ('train', 'val', 'test')
 
   Returns:
     A list of sorted file names or None when getting label for
       test set.
   """
-  if dataset_split == 'train_fine':
-    split_dir = 'train'
-  elif dataset_split == 'val_fine':
-    split_dir = 'val'
-  elif dataset_split == 'test_fine':
-    split_dir = 'test'
-  else:
-    raise RuntimeError("Split {} is not supported".format(dataset_split))
+  if data == 'label' and dataset_split == 'test':
+    return None
   pattern = '*%s.%s' % (_POSTFIX_MAP[data], _DATA_FORMAT_MAP[data])
   search_files = os.path.join(
-      FLAGS.cityscapes_root, _FOLDERS_MAP[data], split_dir, '*', pattern)
+      FLAGS.cityscapes_root, _FOLDERS_MAP[data], dataset_split, '*', pattern)
   filenames = glob.glob(search_files)
   return sorted(filenames)
 
@@ -138,7 +132,7 @@ def _convert_dataset(dataset_split):
   """Converts the specified dataset split to TFRecord format.
 
   Args:
-    dataset_split: The dataset split (e.g., train_fine, val_fine).
+    dataset_split: The dataset split (e.g., train, val).
 
   Raises:
     RuntimeError: If loaded image and label have different shape, or if the
@@ -148,11 +142,7 @@ def _convert_dataset(dataset_split):
   label_files = _get_files('label', dataset_split)
 
   num_images = len(image_files)
-  num_labels = len(label_files)
   num_per_shard = int(math.ceil(num_images / _NUM_SHARDS))
-
-  if num_images != num_labels:
-    raise RuntimeError("The number of images and labels doesn't match: {} {}".format(num_images, num_labels))
 
   image_reader = build_data.ImageReader('png', channels=3)
   label_reader = build_data.ImageReader('png', channels=1)
@@ -189,8 +179,8 @@ def _convert_dataset(dataset_split):
 
 
 def main(unused_argv):
-  # Only support converting 'train_fine', 'val_fine' and 'test_fine' sets for now.
-  for dataset_split in ['train_fine', 'val_fine', 'test_fine']:
+  # Only support converting 'train' and 'val' sets for now.
+  for dataset_split in ['train', 'val']:
     _convert_dataset(dataset_split)
 
 

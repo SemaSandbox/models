@@ -269,7 +269,8 @@ class ExtractAggregatedRepresentation(object):
                            axis=0), [num_assignments, 1]) - tf.gather(
                                codebook, selected_visual_words[ind])
         return ind + 1, tf.tensor_scatter_nd_add(
-            vlad, tf.expand_dims(selected_visual_words[ind], axis=1), diff)
+            vlad, tf.expand_dims(selected_visual_words[ind], axis=1),
+            tf.cast(diff, dtype=tf.float32))
 
       ind_vlad = tf.constant(0, dtype=tf.int32)
       keep_going = lambda j, vlad: tf.less(j, num_features)
@@ -395,7 +396,9 @@ class ExtractAggregatedRepresentation(object):
 
     visual_words = tf.reshape(
         tf.where(
-            tf.greater(per_centroid_norms, tf.sqrt(_NORM_SQUARED_TOLERANCE))),
+            tf.greater(
+                per_centroid_norms,
+                tf.cast(tf.sqrt(_NORM_SQUARED_TOLERANCE), dtype=tf.float32))),
         [-1])
 
     per_centroid_normalized_vector = tf.math.l2_normalize(

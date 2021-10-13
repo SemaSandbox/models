@@ -89,6 +89,8 @@ PREPROCESSING_FUNCTION_MAP = {
         preprocessor.random_adjust_saturation,
     'random_distort_color':
         preprocessor.random_distort_color,
+    'random_jitter_boxes':
+        preprocessor.random_jitter_boxes,
     'random_crop_to_aspect_ratio':
         preprocessor.random_crop_to_aspect_ratio,
     'random_black_patches':
@@ -101,14 +103,12 @@ PREPROCESSING_FUNCTION_MAP = {
         preprocessor.random_patch_gaussian,
     'rgb_to_gray':
         preprocessor.rgb_to_gray,
-    'scale_boxes_to_pixel_coordinates':
-        (preprocessor.scale_boxes_to_pixel_coordinates),
+    'scale_boxes_to_pixel_coordinates': (
+        preprocessor.scale_boxes_to_pixel_coordinates),
     'subtract_channel_mean':
         preprocessor.subtract_channel_mean,
     'convert_class_logits_to_softmax':
         preprocessor.convert_class_logits_to_softmax,
-    'adjust_gamma':
-        preprocessor.adjust_gamma,
 }
 
 
@@ -121,16 +121,6 @@ RESIZE_METHOD_MAP = {
     preprocessor_pb2.ResizeImage.NEAREST_NEIGHBOR: (
         tf.image.ResizeMethod.NEAREST_NEIGHBOR),
 }
-
-
-def get_random_jitter_kwargs(proto):
-  return {
-      'ratio':
-          proto.ratio,
-      'jitter_mode':
-          preprocessor_pb2.RandomJitterBoxes.JitterMode.Name(proto.jitter_mode
-                                                            ).lower()
-  }
 
 
 def build(preprocessor_step_config):
@@ -161,7 +151,6 @@ def build(preprocessor_step_config):
             {
                 'keypoint_flip_permutation': tuple(
                     config.keypoint_flip_permutation) or None,
-                'probability': config.probability or None,
             })
 
   if step_type == 'random_vertical_flip':
@@ -170,17 +159,10 @@ def build(preprocessor_step_config):
             {
                 'keypoint_flip_permutation': tuple(
                     config.keypoint_flip_permutation) or None,
-                'probability': config.probability or None,
             })
 
   if step_type == 'random_rotation90':
-    config = preprocessor_step_config.random_rotation90
-    return (preprocessor.random_rotation90,
-            {
-                'keypoint_rot_permutation': tuple(
-                    config.keypoint_rot_permutation) or None,
-                'probability': config.probability or None,
-            })
+    return (preprocessor.random_rotation90, {})
 
   if step_type == 'random_crop_image':
     config = preprocessor_step_config.random_crop_image
@@ -427,17 +409,4 @@ def build(preprocessor_step_config):
         'num_scales': config.num_scales
     }
 
-  if step_type == 'random_scale_crop_and_pad_to_square':
-    config = preprocessor_step_config.random_scale_crop_and_pad_to_square
-    return preprocessor.random_scale_crop_and_pad_to_square, {
-        'scale_min': config.scale_min,
-        'scale_max': config.scale_max,
-        'output_size': config.output_size,
-    }
-
-
-  if step_type == 'random_jitter_boxes':
-    config = preprocessor_step_config.random_jitter_boxes
-    kwargs = get_random_jitter_kwargs(config)
-    return preprocessor.random_jitter_boxes, kwargs
   raise ValueError('Unknown preprocessing step.')

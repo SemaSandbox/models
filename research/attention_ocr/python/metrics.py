@@ -34,21 +34,20 @@ def char_accuracy(predictions, targets, rej_char, streaming=False):
     a update_ops for execution and value tensor whose value on evaluation
     returns the total character accuracy.
   """
-  with tf.compat.v1.variable_scope('CharAccuracy'):
+  with tf.variable_scope('CharAccuracy'):
     predictions.get_shape().assert_is_compatible_with(targets.get_shape())
 
-    targets = tf.cast(targets, dtype=tf.int32)
+    targets = tf.to_int32(targets)
     const_rej_char = tf.constant(rej_char, shape=targets.get_shape())
-    weights = tf.cast(tf.not_equal(targets, const_rej_char), dtype=tf.float32)
-    correct_chars = tf.cast(tf.equal(predictions, targets), dtype=tf.float32)
-    accuracy_per_example = tf.compat.v1.div(
-        tf.reduce_sum(input_tensor=tf.multiply(
-            correct_chars, weights), axis=1),
-        tf.reduce_sum(input_tensor=weights, axis=1))
+    weights = tf.to_float(tf.not_equal(targets, const_rej_char))
+    correct_chars = tf.to_float(tf.equal(predictions, targets))
+    accuracy_per_example = tf.div(
+        tf.reduce_sum(tf.multiply(correct_chars, weights), 1),
+        tf.reduce_sum(weights, 1))
     if streaming:
-      return tf.metrics.mean(accuracy_per_example)
+      return tf.contrib.metrics.streaming_mean(accuracy_per_example)
     else:
-      return tf.reduce_mean(input_tensor=accuracy_per_example)
+      return tf.reduce_mean(accuracy_per_example)
 
 
 def sequence_accuracy(predictions, targets, rej_char, streaming=False):
@@ -67,26 +66,25 @@ def sequence_accuracy(predictions, targets, rej_char, streaming=False):
     returns the total sequence accuracy.
   """
 
-  with tf.compat.v1.variable_scope('SequenceAccuracy'):
+  with tf.variable_scope('SequenceAccuracy'):
     predictions.get_shape().assert_is_compatible_with(targets.get_shape())
 
-    targets = tf.cast(targets, dtype=tf.int32)
+    targets = tf.to_int32(targets)
     const_rej_char = tf.constant(
         rej_char, shape=targets.get_shape(), dtype=tf.int32)
     include_mask = tf.not_equal(targets, const_rej_char)
-    include_predictions = tf.cast(
-        tf.compat.v1.where(include_mask, predictions,
-                           tf.zeros_like(predictions) + rej_char), dtype=tf.int32)
-    correct_chars = tf.cast(
-        tf.equal(include_predictions, targets), dtype=tf.float32)
+    include_predictions = tf.to_int32(
+        tf.where(include_mask, predictions,
+                 tf.zeros_like(predictions) + rej_char))
+    correct_chars = tf.to_float(tf.equal(include_predictions, targets))
     correct_chars_counts = tf.cast(
-        tf.reduce_sum(input_tensor=correct_chars, axis=[1]), dtype=tf.int32)
+        tf.reduce_sum(correct_chars, reduction_indices=[1]), dtype=tf.int32)
     target_length = targets.get_shape().dims[1].value
     target_chars_counts = tf.constant(
         target_length, shape=correct_chars_counts.get_shape())
-    accuracy_per_example = tf.cast(
-        tf.equal(correct_chars_counts, target_chars_counts), dtype=tf.float32)
+    accuracy_per_example = tf.to_float(
+        tf.equal(correct_chars_counts, target_chars_counts))
     if streaming:
-      return tf.metrics.mean(accuracy_per_example)
+      return tf.contrib.metrics.streaming_mean(accuracy_per_example)
     else:
-      return tf.reduce_mean(input_tensor=accuracy_per_example)
+      return tf.reduce_mean(accuracy_per_example)

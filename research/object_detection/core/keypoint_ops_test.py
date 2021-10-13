@@ -116,35 +116,6 @@ class KeypointOpsTest(test_case.TestCase):
         ])
     self.assertAllClose(expected_bboxes, output)
 
-  def test_keypoints_to_enclosing_bounding_boxes_axis2(self):
-    def graph_fn():
-      keypoints = tf.constant(
-          [
-              [  # Instance 0.
-                  [5., 10.],
-                  [3., 20.],
-                  [8., 4.],
-              ],
-              [  # Instance 1.
-                  [2., 12.],
-                  [0., 3.],
-                  [5., 19.],
-              ],
-          ], dtype=tf.float32)
-      keypoints = tf.stack([keypoints, keypoints], axis=0)
-      bboxes = keypoint_ops.keypoints_to_enclosing_bounding_boxes(
-          keypoints, keypoints_axis=2)
-      return bboxes
-    output = self.execute(graph_fn, [])
-
-    expected_bboxes = np.array(
-        [
-            [3., 4., 8., 20.],
-            [0., 3., 5., 19.]
-        ])
-    self.assertAllClose(expected_bboxes, output[0])
-    self.assertAllClose(expected_bboxes, output[1])
-
   def test_to_normalized_coordinates(self):
     def graph_fn():
       keypoints = tf.constant([
@@ -209,21 +180,6 @@ class KeypointOpsTest(test_case.TestCase):
           [[0.1, 0.1], [0.2, 0.2], [0.3, 0.3]],
           [[0.4, 0.4], [0.5, 0.5], [0.6, 0.6]]
       ])
-      expected_keypoints = tf.constant([
-          [[0.1, 0.9], [0.2, 0.8], [0.3, 0.7]],
-          [[0.4, 0.6], [0.5, 0.5], [0.6, 0.4]],
-      ])
-      output = keypoint_ops.flip_horizontal(keypoints, 0.5)
-      return output, expected_keypoints
-
-    output, expected_keypoints = self.execute(graph_fn, [])
-    self.assertAllClose(output, expected_keypoints)
-
-  def test_flip_horizontal_permutation(self):
-
-    def graph_fn():
-      keypoints = tf.constant([[[0.1, 0.1], [0.2, 0.2], [0.3, 0.3]],
-                               [[0.4, 0.4], [0.5, 0.5], [0.6, 0.6]]])
       flip_permutation = [0, 2, 1]
 
       expected_keypoints = tf.constant([
@@ -241,22 +197,6 @@ class KeypointOpsTest(test_case.TestCase):
           [[0.1, 0.1], [0.2, 0.2], [0.3, 0.3]],
           [[0.4, 0.4], [0.5, 0.5], [0.6, 0.6]]
       ])
-
-      expected_keypoints = tf.constant([
-          [[0.9, 0.1], [0.8, 0.2], [0.7, 0.3]],
-          [[0.6, 0.4], [0.5, 0.5], [0.4, 0.6]],
-      ])
-      output = keypoint_ops.flip_vertical(keypoints, 0.5)
-      return output, expected_keypoints
-
-    output, expected_keypoints = self.execute(graph_fn, [])
-    self.assertAllClose(output, expected_keypoints)
-
-  def test_flip_vertical_permutation(self):
-
-    def graph_fn():
-      keypoints = tf.constant([[[0.1, 0.1], [0.2, 0.2], [0.3, 0.3]],
-                               [[0.4, 0.4], [0.5, 0.5], [0.6, 0.6]]])
       flip_permutation = [0, 2, 1]
 
       expected_keypoints = tf.constant([
@@ -282,24 +222,6 @@ class KeypointOpsTest(test_case.TestCase):
       return output, expected_keypoints
     output, expected_keypoints = self.execute(graph_fn, [])
     self.assertAllClose(output, expected_keypoints)
-
-  def test_rot90_permutation(self):
-
-    def graph_fn():
-      keypoints = tf.constant([[[0.1, 0.1], [0.2, 0.2], [0.3, 0.3]],
-                               [[0.4, 0.6], [0.5, 0.6], [0.6, 0.7]]])
-      rot_permutation = [0, 2, 1]
-      expected_keypoints = tf.constant([
-          [[0.9, 0.1], [0.7, 0.3], [0.8, 0.2]],
-          [[0.4, 0.4], [0.3, 0.6], [0.4, 0.5]],
-      ])
-      output = keypoint_ops.rot90(keypoints,
-                                  rotation_permutation=rot_permutation)
-      return output, expected_keypoints
-
-    output, expected_keypoints = self.execute(graph_fn, [])
-    self.assertAllClose(output, expected_keypoints)
-
 
   def test_keypoint_weights_from_visibilities(self):
     def graph_fn():

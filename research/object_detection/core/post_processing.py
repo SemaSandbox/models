@@ -26,7 +26,6 @@ import tensorflow.compat.v1 as tf
 
 from object_detection.core import box_list
 from object_detection.core import box_list_ops
-from object_detection.core import keypoint_ops
 from object_detection.core import standard_fields as fields
 from object_detection.utils import shape_utils
 
@@ -380,43 +379,7 @@ def _clip_window_prune_boxes(sorted_boxes, clip_window, pad_to_max_output_size,
   if change_coordinate_frame:
     sorted_boxes = box_list_ops.change_coordinate_frame(sorted_boxes,
                                                         clip_window)
-    if sorted_boxes.has_field(fields.BoxListFields.keypoints):
-      sorted_keypoints = sorted_boxes.get_field(fields.BoxListFields.keypoints)
-      sorted_keypoints = keypoint_ops.change_coordinate_frame(sorted_keypoints,
-                                                              clip_window)
-      sorted_boxes.set_field(fields.BoxListFields.keypoints, sorted_keypoints)
   return sorted_boxes, num_valid_nms_boxes_cumulative
-
-
-def _clip_boxes(boxes, clip_window):
-  """Clips boxes to the given window.
-
-  Args:
-    boxes: A [batch, num_boxes, 4] float32 tensor containing box coordinates in
-      [ymin, xmin, ymax, xmax] form.
-    clip_window: A [batch, 4] float32 tensor with left top and right bottom
-      coordinate of the window in [ymin, xmin, ymax, xmax] form.
-
-  Returns:
-    A [batch, num_boxes, 4] float32 tensor containing boxes clipped to the given
-    window.
-  """
-  ymin, xmin, ymax, xmax = tf.unstack(boxes, axis=-1)
-  clipped_ymin = tf.maximum(ymin, clip_window[:, 0, tf.newaxis])
-  clipped_xmin = tf.maximum(xmin, clip_window[:, 1, tf.newaxis])
-  clipped_ymax = tf.minimum(ymax, clip_window[:, 2, tf.newaxis])
-  clipped_xmax = tf.minimum(xmax, clip_window[:, 3, tf.newaxis])
-  return tf.stack([clipped_ymin, clipped_xmin, clipped_ymax, clipped_xmax],
-                  axis=-1)
-
-
-class NullContextmanager(object):
-
-  def __enter__(self):
-    pass
-
-  def __exit__(self, type_arg, value_arg, traceback_arg):
-    return False
 
 
 def multiclass_non_max_suppression(boxes,
@@ -434,7 +397,6 @@ def multiclass_non_max_suppression(boxes,
                                    additional_fields=None,
                                    soft_nms_sigma=0.0,
                                    use_hard_nms=False,
-                                   use_cpu_nms=False,
                                    scope=None):
   """Multi-class version of non maximum suppression.
 
@@ -490,7 +452,6 @@ def multiclass_non_max_suppression(boxes,
       NMS.  Soft NMS is currently only supported when pad_to_max_output_size is
       False.
     use_hard_nms: Enforce the usage of hard NMS.
-    use_cpu_nms: Enforce NMS to run on CPU.
     scope: name scope.
 
   Returns:
@@ -513,8 +474,7 @@ def multiclass_non_max_suppression(boxes,
     raise ValueError('Soft NMS (soft_nms_sigma != 0.0) is currently not '
                      'supported when pad_to_max_output_size is True.')
 
-  with tf.name_scope(scope, 'MultiClassNonMaxSuppression'), tf.device(
-      'cpu:0') if use_cpu_nms else NullContextmanager():
+  with tf.name_scope(scope, 'MultiClassNonMaxSuppression'):
     num_scores = tf.shape(scores)[0]
     num_classes = shape_utils.get_dim_as_int(scores.get_shape()[1])
 
@@ -895,8 +855,7 @@ def batch_multiclass_non_max_suppression(boxes,
                                          max_classes_per_detection=1,
                                          use_dynamic_map_fn=False,
                                          use_combined_nms=False,
-                                         use_hard_nms=False,
-                                         use_cpu_nms=False):
+                                         use_hard_nms=False):
   """Multi-class version of non maximum suppression that operates on a batch.
 
   This op is similar to `multiclass_non_max_suppression` but operates on a batch
@@ -968,7 +927,6 @@ def batch_multiclass_non_max_suppression(boxes,
       Masks and additional fields are not supported.
       See argument checks in the code below for unsupported arguments.
     use_hard_nms: Enforce the usage of hard NMS.
-    use_cpu_nms: Enforce NMS to run on CPU.
 
   Returns:
     'nmsed_boxes': A [batch_size, max_detections, 4] float32 tensor
@@ -1007,10 +965,10 @@ def batch_multiclass_non_max_suppression(boxes,
       raise ValueError('Soft NMS is not supported by combined_nms.')
     if use_class_agnostic_nms:
       raise ValueError('class-agnostic NMS is not supported by combined_nms.')
-    if clip_window is None:
+    if clip_window is not None:
       tf.logging.warning(
-          'A default clip window of [0. 0. 1. 1.] will be applied for the '
-          'boxes.')
+          'clip_window is not supported by combined_nms unless it is'
+          ' [0. 0. 1. 1.] for each image.')
     if additional_fields is not None:
       tf.logging.warning('additional_fields is not supported by combined_nms.')
     if parallel_iterations != 32:
@@ -1029,14 +987,7 @@ def batch_multiclass_non_max_suppression(boxes,
            max_total_size=max_total_size,
            iou_threshold=iou_thresh,
            score_threshold=score_thresh,
-           clip_boxes=(True if clip_window is None else False),
            pad_per_class=use_static_shapes)
-      if clip_window is not None:
-        if clip_window.shape.ndims == 1:
-          boxes_shape = boxes.shape
-          batch_size = shape_utils.get_dim_as_int(boxes_shape[0])
-          clip_window = tf.tile(clip_window[tf.newaxis, :], [batch_size, 1])
-        batch_nmsed_boxes = _clip_boxes(batch_nmsed_boxes, clip_window)
       # Not supported by combined_non_max_suppression.
       batch_nmsed_masks = None
       # Not supported by combined_non_max_suppression.
@@ -1211,8 +1162,7 @@ def batch_multiclass_non_max_suppression(boxes,
             use_partitioned_nms=use_partitioned_nms,
             additional_fields=per_image_additional_fields,
             soft_nms_sigma=soft_nms_sigma,
-            use_hard_nms=use_hard_nms,
-            use_cpu_nms=use_cpu_nms)
+            use_hard_nms=use_hard_nms)
 
       if not use_static_shapes:
         nmsed_boxlist = box_list_ops.pad_or_clip_box_list(

@@ -72,7 +72,7 @@ def read_charset(filename, null_character=u'\u2591'):
   """
   pattern = re.compile(r'(\d+)\t(.+)')
   charset = {}
-  with tf.io.gfile.GFile(filename) as f:
+  with tf.gfile.GFile(filename) as f:
     for i, line in enumerate(f):
       m = pattern.match(line)
       if m is None:
@@ -96,9 +96,9 @@ class _NumOfViewsHandler(slim.tfexample_decoder.ItemHandler):
     self._num_of_views = num_of_views
 
   def tensors_to_item(self, keys_to_tensors):
-    return tf.cast(
+    return tf.to_int64(
         self._num_of_views * keys_to_tensors[self._original_width_key] /
-        keys_to_tensors[self._width_key], dtype=tf.int64)
+        keys_to_tensors[self._width_key])
 
 
 def get_split(split_name, dataset_dir=None, config=None):
@@ -133,19 +133,19 @@ def get_split(split_name, dataset_dir=None, config=None):
   zero = tf.zeros([1], dtype=tf.int64)
   keys_to_features = {
       'image/encoded':
-      tf.io.FixedLenFeature((), tf.string, default_value=''),
+      tf.FixedLenFeature((), tf.string, default_value=''),
       'image/format':
-      tf.io.FixedLenFeature((), tf.string, default_value='png'),
+      tf.FixedLenFeature((), tf.string, default_value='png'),
       'image/width':
-      tf.io.FixedLenFeature([1], tf.int64, default_value=zero),
+      tf.FixedLenFeature([1], tf.int64, default_value=zero),
       'image/orig_width':
-      tf.io.FixedLenFeature([1], tf.int64, default_value=zero),
+      tf.FixedLenFeature([1], tf.int64, default_value=zero),
       'image/class':
-      tf.io.FixedLenFeature([config['max_sequence_length']], tf.int64),
+      tf.FixedLenFeature([config['max_sequence_length']], tf.int64),
       'image/unpadded_class':
-      tf.io.VarLenFeature(tf.int64),
+      tf.VarLenFeature(tf.int64),
       'image/text':
-      tf.io.FixedLenFeature([1], tf.string, default_value=''),
+      tf.FixedLenFeature([1], tf.string, default_value=''),
   }
   items_to_handlers = {
       'image':
@@ -171,14 +171,12 @@ def get_split(split_name, dataset_dir=None, config=None):
                               config['splits'][split_name]['pattern'])
   return slim.dataset.Dataset(
       data_sources=file_pattern,
-      reader=tf.compat.v1.TFRecordReader,
+      reader=tf.TFRecordReader,
       decoder=decoder,
       num_samples=config['splits'][split_name]['size'],
       items_to_descriptions=config['items_to_descriptions'],
       #  additional parameters for convenience.
       charset=charset,
-      charset_file=charset_file,
-      image_shape=config['image_shape'],
       num_char_classes=len(charset),
       num_of_views=config['num_of_views'],
       max_sequence_length=config['max_sequence_length'],

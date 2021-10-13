@@ -47,13 +47,12 @@ def MatchFeatures(query_locations,
                   index_image_locations,
                   index_image_descriptors,
                   ransac_seed=None,
-                  descriptor_matching_threshold=0.9,
+                  feature_distance_threshold=0.9,
                   ransac_residual_threshold=10.0,
                   query_im_array=None,
                   index_im_array=None,
                   query_im_scale_factors=None,
-                  index_im_scale_factors=None,
-                  use_ratio_test=False):
+                  index_im_scale_factors=None):
   """Matches local features using geometric verification.
 
   First, finds putative local feature matches by matching `query_descriptors`
@@ -71,10 +70,8 @@ def MatchFeatures(query_locations,
     index_image_descriptors: Descriptors of local features for index image.
       NumPy array of shape [#index_image_features, depth].
     ransac_seed: Seed used by RANSAC. If None (default), no seed is provided.
-    descriptor_matching_threshold: Threshold below which a pair of local
-      descriptors is considered a potential match, and will be fed into RANSAC.
-      If use_ratio_test==False, this is a simple distance threshold. If
-      use_ratio_test==True, this is Lowe's ratio test threshold.
+    feature_distance_threshold: Distance threshold below which a pair of
+      features is considered a potential match, and will be fed into RANSAC.
     ransac_residual_threshold: Residual error threshold for considering matches
       as inliers, used in RANSAC algorithm.
     query_im_array: Optional. If not None, contains a NumPy array with the query
@@ -86,8 +83,6 @@ def MatchFeatures(query_locations,
       (ie, feature locations are not scaled).
     index_im_scale_factors: Optional. Same as `query_im_scale_factors`, but for
       index image.
-    use_ratio_test: If True, descriptor matching is performed via ratio test,
-      instead of distance-based threshold.
 
   Returns:
     score: Number of inliers of match. If no match is found, returns 0.
@@ -110,38 +105,22 @@ def MatchFeatures(query_locations,
         'Local feature dimensionality is not consistent for query and index '
         'images.')
 
-  # Construct KD-tree used to find nearest neighbors.
+  # Find nearest-neighbor matches using a KD tree.
   index_image_tree = spatial.cKDTree(index_image_descriptors)
-  if use_ratio_test:
-    distances, indices = index_image_tree.query(
-        query_descriptors, k=2, n_jobs=-1)
-    query_locations_to_use = np.array([
-        query_locations[i,]
-        for i in range(num_features_query)
-        if distances[i][0] < descriptor_matching_threshold * distances[i][1]
-    ])
-    index_image_locations_to_use = np.array([
-        index_image_locations[indices[i][0],]
-        for i in range(num_features_query)
-        if distances[i][0] < descriptor_matching_threshold * distances[i][1]
-    ])
-  else:
-    _, indices = index_image_tree.query(
-        query_descriptors,
-        distance_upper_bound=descriptor_matching_threshold,
-        n_jobs=-1)
+  _, indices = index_image_tree.query(
+      query_descriptors, distance_upper_bound=feature_distance_threshold)
 
-    # Select feature locations for putative matches.
-    query_locations_to_use = np.array([
-        query_locations[i,]
-        for i in range(num_features_query)
-        if indices[i] != num_features_index_image
-    ])
-    index_image_locations_to_use = np.array([
-        index_image_locations[indices[i],]
-        for i in range(num_features_query)
-        if indices[i] != num_features_index_image
-    ])
+  # Select feature locations for putative matches.
+  query_locations_to_use = np.array([
+      query_locations[i,]
+      for i in range(num_features_query)
+      if indices[i] != num_features_index_image
+  ])
+  index_image_locations_to_use = np.array([
+      index_image_locations[indices[i],]
+      for i in range(num_features_query)
+      if indices[i] != num_features_index_image
+  ])
 
   # If there are not enough putative matches, early return 0.
   if query_locations_to_use.shape[0] <= _MIN_RANSAC_SAMPLES:
@@ -196,9 +175,8 @@ def RerankByGeometricVerification(input_ranks,
                                   junk_ids,
                                   local_feature_extension=_DELF_EXTENSION,
                                   ransac_seed=None,
-                                  descriptor_matching_threshold=0.9,
-                                  ransac_residual_threshold=10.0,
-                                  use_ratio_test=False):
+                                  feature_distance_threshold=0.9,
+                                  ransac_residual_threshold=10.0):
   """Re-ranks retrieval results using geometric verification.
 
   Args:
@@ -217,11 +195,10 @@ def RerankByGeometricVerification(input_ranks,
     local_feature_extension: String, extension to use for loading local feature
       files.
     ransac_seed: Seed used by RANSAC. If None (default), no seed is provided.
-    descriptor_matching_threshold: Threshold used for local descriptor matching.
+    feature_distance_threshold: Distance threshold below which a pair of local
+      features is considered a potential match, and will be fed into RANSAC.
     ransac_residual_threshold: Residual error threshold for considering matches
       as inliers, used in RANSAC algorithm.
-    use_ratio_test: If True, descriptor matching is performed via ratio test,
-      instead of distance-based threshold.
 
   Returns:
     output_ranks: 1D NumPy array with index image indices, sorted from the most
@@ -281,9 +258,8 @@ def RerankByGeometricVerification(input_ranks,
         index_image_locations,
         index_image_descriptors,
         ransac_seed=ransac_seed,
-        descriptor_matching_threshold=descriptor_matching_threshold,
-        ransac_residual_threshold=ransac_residual_threshold,
-        use_ratio_test=use_ratio_test)
+        feature_distance_threshold=feature_distance_threshold,
+        ransac_residual_threshold=ransac_residual_threshold)
 
   # Sort based on (inliers_score, initial_score).
   def _InliersInitialScoresSorting(k):

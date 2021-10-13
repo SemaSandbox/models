@@ -130,18 +130,6 @@ def convert_label_map_to_categories(label_map,
     if item.id not in list_of_ids_already_added:
       list_of_ids_already_added.append(item.id)
       category = {'id': item.id, 'name': name}
-      if item.HasField('frequency'):
-        if item.frequency == string_int_label_map_pb2.LVISFrequency.Value(
-            'FREQUENT'):
-          category['frequency'] = 'f'
-        elif item.frequency == string_int_label_map_pb2.LVISFrequency.Value(
-            'COMMON'):
-          category['frequency'] = 'c'
-        elif item.frequency == string_int_label_map_pb2.LVISFrequency.Value(
-            'RARE'):
-          category['frequency'] = 'r'
-      if item.HasField('instance_count'):
-        category['instance_count'] = item.instance_count
       if item.keypoints:
         keypoints = {}
         list_of_keypoint_ids = []
@@ -229,39 +217,6 @@ def get_label_map_dict(label_map_path_or_proto,
           # teacher annotation adds this prefix in the data.
           label_map_dict[str(value)] = value
 
-  return label_map_dict
-
-
-def get_keypoint_label_map_dict(label_map_path_or_proto):
-  """Reads a label map and returns a dictionary of keypoint names to ids.
-
-  Note that the keypoints belong to different classes will be merged into a
-  single dictionary. It is expected that there is no duplicated keypoint names
-  or ids from different classes.
-
-  Args:
-    label_map_path_or_proto: path to StringIntLabelMap proto text file or the
-      proto itself.
-
-  Returns:
-    A dictionary mapping keypoint names to the keypoint id (not the object id).
-
-  Raises:
-    ValueError: if there are duplicated keyoint names or ids.
-  """
-  if isinstance(label_map_path_or_proto, string_types):
-    label_map = load_labelmap(label_map_path_or_proto)
-  else:
-    label_map = label_map_path_or_proto
-
-  label_map_dict = {}
-  for item in label_map.item:
-    for kpts in item.keypoints:
-      if kpts.label in label_map_dict.keys():
-        raise ValueError('Duplicated keypoint label: %s' % kpts.label)
-      if kpts.id in label_map_dict.values():
-        raise ValueError('Duplicated keypoint ID: %d' % kpts.id)
-      label_map_dict[kpts.label] = kpts.id
   return label_map_dict
 
 

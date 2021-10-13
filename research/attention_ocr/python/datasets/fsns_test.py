@@ -22,9 +22,8 @@ from tensorflow.contrib import slim
 
 from datasets import fsns
 from datasets import unittest_utils
-from tensorflow.compat.v1 import flags
 
-FLAGS = flags.FLAGS
+FLAGS = tf.flags.FLAGS
 
 
 def get_test_split():
@@ -92,7 +91,7 @@ class FsnsTest(tf.test.TestCase):
     image_tf, label_tf = provider.get(['image', 'label'])
 
     with self.test_session() as sess:
-      sess.run(tf.compat.v1.global_variables_initializer())
+      sess.run(tf.global_variables_initializer())
       with slim.queues.QueueRunners(sess):
         image_np, label_np = sess.run([image_tf, label_tf])
 

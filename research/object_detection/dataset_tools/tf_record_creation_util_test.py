@@ -42,7 +42,7 @@ class OpenOutputTfrecordsTests(tf.test.TestCase):
       tf_record_path = '{}-{:05d}-of-00010'.format(
           os.path.join(tf.test.get_temp_dir(), 'test.tfrec'), idx)
       records = list(tf.python_io.tf_record_iterator(tf_record_path))
-      self.assertAllEqual(records, ['test_{}'.format(idx).encode('utf-8')])
+      self.assertAllEqual(records, ['test_{}'.format(idx)])
 
 
 if __name__ == '__main__':

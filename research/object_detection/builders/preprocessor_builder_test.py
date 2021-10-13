@@ -65,15 +65,13 @@ class PreprocessorBuilderTest(tf.test.TestCase):
       keypoint_flip_permutation: 3
       keypoint_flip_permutation: 5
       keypoint_flip_permutation: 4
-      probability: 0.5
     }
     """
     preprocessor_proto = preprocessor_pb2.PreprocessingStep()
     text_format.Merge(preprocessor_text_proto, preprocessor_proto)
     function, args = preprocessor_builder.build(preprocessor_proto)
     self.assertEqual(function, preprocessor.random_horizontal_flip)
-    self.assertEqual(args, {'keypoint_flip_permutation': (1, 0, 2, 3, 5, 4),
-                            'probability': 0.5})
+    self.assertEqual(args, {'keypoint_flip_permutation': (1, 0, 2, 3, 5, 4)})
 
   def test_build_random_vertical_flip(self):
     preprocessor_text_proto = """
@@ -84,32 +82,23 @@ class PreprocessorBuilderTest(tf.test.TestCase):
       keypoint_flip_permutation: 3
       keypoint_flip_permutation: 5
       keypoint_flip_permutation: 4
-      probability: 0.5
     }
     """
     preprocessor_proto = preprocessor_pb2.PreprocessingStep()
     text_format.Merge(preprocessor_text_proto, preprocessor_proto)
     function, args = preprocessor_builder.build(preprocessor_proto)
     self.assertEqual(function, preprocessor.random_vertical_flip)
-    self.assertEqual(args, {'keypoint_flip_permutation': (1, 0, 2, 3, 5, 4),
-                            'probability': 0.5})
+    self.assertEqual(args, {'keypoint_flip_permutation': (1, 0, 2, 3, 5, 4)})
 
   def test_build_random_rotation90(self):
     preprocessor_text_proto = """
-    random_rotation90 {
-      keypoint_rot_permutation: 3
-      keypoint_rot_permutation: 0
-      keypoint_rot_permutation: 1
-      keypoint_rot_permutation: 2
-      probability: 0.5
-    }
+    random_rotation90 {}
     """
     preprocessor_proto = preprocessor_pb2.PreprocessingStep()
     text_format.Merge(preprocessor_text_proto, preprocessor_proto)
     function, args = preprocessor_builder.build(preprocessor_proto)
     self.assertEqual(function, preprocessor.random_rotation90)
-    self.assertEqual(args, {'keypoint_rot_permutation': (3, 0, 1, 2),
-                            'probability': 0.5})
+    self.assertEqual(args, {})
 
   def test_build_random_pixel_value_scale(self):
     preprocessor_text_proto = """
@@ -216,14 +205,13 @@ class PreprocessorBuilderTest(tf.test.TestCase):
     preprocessor_text_proto = """
     random_jitter_boxes {
       ratio: 0.1
-      jitter_mode: SHRINK
     }
     """
     preprocessor_proto = preprocessor_pb2.PreprocessingStep()
     text_format.Merge(preprocessor_text_proto, preprocessor_proto)
     function, args = preprocessor_builder.build(preprocessor_proto)
     self.assertEqual(function, preprocessor.random_jitter_boxes)
-    self.assert_dictionary_close(args, {'ratio': 0.1, 'jitter_mode': 'shrink'})
+    self.assert_dictionary_close(args, {'ratio': 0.1})
 
   def test_build_random_crop_image(self):
     preprocessor_text_proto = """
@@ -753,20 +741,6 @@ class PreprocessorBuilderTest(tf.test.TestCase):
         'num_scales': 8,
         'max_border': 128
     })
-
-  def test_adjust_gamma(self):
-    preprocessor_text_proto = """
-    adjust_gamma {
-      gamma: 2.2
-      gain: 2.0
-    }
-    """
-    preprocessor_proto = preprocessor_pb2.PreprocessingStep()
-    text_format.Parse(preprocessor_text_proto, preprocessor_proto)
-    function, args = preprocessor_builder.build(preprocessor_proto)
-    self.assertEqual(function, preprocessor.adjust_gamma)
-    self.assert_dictionary_close(args, {'gamma': 2.2, 'gain': 2.0})
-
 
 
 if __name__ == '__main__':

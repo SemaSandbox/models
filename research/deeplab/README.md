@@ -1,9 +1,5 @@
 # DeepLab: Deep Labelling for Semantic Image Segmentation
 
-**To new and existing DeepLab users**: We have released a unified codebase for
-dense pixel labeling tasks in TensorFlow2 at https://github.com/google-research/deeplab2.
-Please consider switching to the newer codebase for better support. 
-
 DeepLab is a state-of-art deep learning model for semantic image segmentation,
 where the goal is to assign semantic labels (e.g., person, dog, cat and so on)
 to every pixel in the input image. Current implementation includes the following
@@ -250,7 +246,7 @@ PASCAL VOC 2012 and Cityscapes.
 ### March 5, 2018
 
 * First release of DeepLab in TensorFlow including deeper Xception network
-backbone. Included checkpoints that have been pretrained on PASCAL VOC 2012
+backbone. Included chekcpoints that have been pretrained on PASCAL VOC 2012
 and Cityscapes.
 
 ## References

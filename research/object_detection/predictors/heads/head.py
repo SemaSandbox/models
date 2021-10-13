@@ -61,7 +61,7 @@ class Head(object):
     pass
 
 
-class KerasHead(tf.keras.layers.Layer):
+class KerasHead(tf.keras.Model):
   """Keras head base class."""
 
   def call(self, features):

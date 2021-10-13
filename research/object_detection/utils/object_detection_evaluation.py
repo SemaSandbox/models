@@ -159,9 +159,7 @@ class ObjectDetectionEvaluator(DetectionEvaluator):
                metric_prefix=None,
                use_weighted_mean_ap=False,
                evaluate_masks=False,
-               group_of_weight=0.0,
-               nms_iou_threshold=1.0,
-               nms_max_output_boxes=10000):
+               group_of_weight=0.0):
     """Constructor.
 
     Args:
@@ -189,8 +187,6 @@ class ObjectDetectionEvaluator(DetectionEvaluator):
         matching_iou_threshold, weight group_of_weight is added to true
         positives. Consequently, if no detection falls within a group-of box,
         weight group_of_weight is added to false negatives.
-      nms_iou_threshold: NMS IoU threashold.
-      nms_max_output_boxes: maximal number of boxes after NMS.
 
     Raises:
       ValueError: If the category ids are not 1-indexed.
@@ -206,8 +202,6 @@ class ObjectDetectionEvaluator(DetectionEvaluator):
     self._label_id_offset = 1
     self._evaluate_masks = evaluate_masks
     self._group_of_weight = group_of_weight
-    self._nms_iou_threshold = nms_iou_threshold
-    self._nms_max_output_boxes = nms_max_output_boxes
     self._evaluation = ObjectDetectionEvaluation(
         num_groundtruth_classes=self._num_classes,
         matching_iou_threshold=self._matching_iou_threshold,
@@ -215,9 +209,7 @@ class ObjectDetectionEvaluator(DetectionEvaluator):
         recall_upper_bound=self._recall_upper_bound,
         use_weighted_mean_ap=self._use_weighted_mean_ap,
         label_id_offset=self._label_id_offset,
-        group_of_weight=self._group_of_weight,
-        nms_iou_threshold=self._nms_iou_threshold,
-        nms_max_output_boxes=self._nms_max_output_boxes)
+        group_of_weight=self._group_of_weight)
     self._image_ids = set([])
     self._evaluate_corlocs = evaluate_corlocs
     self._evaluate_precision_recall = evaluate_precision_recall
@@ -254,7 +246,7 @@ class ObjectDetectionEvaluator(DetectionEvaluator):
     """
     for image_id in image_ids:
       if image_id in self._image_ids:
-        logging.warning('Image with id %s already added.', image_id)
+        raise ValueError('Image with id {} already added.'.format(image_id))
 
     self._evaluation.merge_internal_state(state_tuple)
 
@@ -321,7 +313,7 @@ class ObjectDetectionEvaluator(DetectionEvaluator):
         raise error if instance masks are not in groundtruth dictionary.
     """
     if image_id in self._image_ids:
-      logging.warning('Image with id %s already added.', image_id)
+      raise ValueError('Image with id {} already added.'.format(image_id))
 
     groundtruth_classes = (
         groundtruth_dict[standard_fields.InputDataFields.groundtruth_classes] -
@@ -462,10 +454,7 @@ class ObjectDetectionEvaluator(DetectionEvaluator):
         num_groundtruth_classes=self._num_classes,
         matching_iou_threshold=self._matching_iou_threshold,
         use_weighted_mean_ap=self._use_weighted_mean_ap,
-        label_id_offset=self._label_id_offset,
-        nms_iou_threshold=self._nms_iou_threshold,
-        nms_max_output_boxes=self._nms_max_output_boxes,
-    )
+        label_id_offset=self._label_id_offset)
     self._image_ids.clear()
 
   def add_eval_dict(self, eval_dict):
@@ -560,19 +549,13 @@ class ObjectDetectionEvaluator(DetectionEvaluator):
 class PascalDetectionEvaluator(ObjectDetectionEvaluator):
   """A class to evaluate detections using PASCAL metrics."""
 
-  def __init__(self,
-               categories,
-               matching_iou_threshold=0.5,
-               nms_iou_threshold=1.0,
-               nms_max_output_boxes=10000):
+  def __init__(self, categories, matching_iou_threshold=0.5):
     super(PascalDetectionEvaluator, self).__init__(
         categories,
         matching_iou_threshold=matching_iou_threshold,
         evaluate_corlocs=False,
         metric_prefix='PascalBoxes',
-        use_weighted_mean_ap=False,
-        nms_iou_threshold=nms_iou_threshold,
-        nms_max_output_boxes=nms_max_output_boxes)
+        use_weighted_mean_ap=False)
 
 
 class WeightedPascalDetectionEvaluator(ObjectDetectionEvaluator):
@@ -729,7 +712,7 @@ class OpenImagesDetectionEvaluator(ObjectDetectionEvaluator):
       ValueError: On adding groundtruth for an image more than once.
     """
     if image_id in self._image_ids:
-      logging.warning('Image with id %s already added.', image_id)
+      raise ValueError('Image with id {} already added.'.format(image_id))
 
     groundtruth_classes = (
         groundtruth_dict[standard_fields.InputDataFields.groundtruth_classes] -

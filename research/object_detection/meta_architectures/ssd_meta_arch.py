@@ -250,6 +250,35 @@ class SSDKerasFeatureExtractor(tf.keras.Model):
   def call(self, inputs, **kwargs):
     return self._extract_features(inputs)
 
+  def restore_from_classification_checkpoint_fn(self, feature_extractor_scope):
+    """Returns a map of variables to load from a foreign checkpoint.
+
+    Args:
+      feature_extractor_scope: A scope name for the feature extractor.
+
+    Returns:
+      A dict mapping variable names (to load from a checkpoint) to variables in
+      the model graph.
+    """
+    variables_to_restore = {}
+    if tf.executing_eagerly():
+      for variable in self.variables:
+        # variable.name includes ":0" at the end, but the names in the
+        # checkpoint do not have the suffix ":0". So, we strip it here.
+        var_name = variable.name[:-2]
+        if var_name.startswith(feature_extractor_scope + '/'):
+          var_name = var_name.replace(feature_extractor_scope + '/', '')
+        variables_to_restore[var_name] = variable
+    else:
+      # b/137854499: use global_variables.
+      for variable in variables_helper.get_global_variables_safely():
+        var_name = variable.op.name
+        if var_name.startswith(feature_extractor_scope + '/'):
+          var_name = var_name.replace(feature_extractor_scope + '/', '')
+          variables_to_restore[var_name] = variable
+
+    return variables_to_restore
+
 
 class SSDMetaArch(model.DetectionModel):
   """SSD Meta-architecture definition."""
@@ -479,9 +508,12 @@ class SSDMetaArch(model.DetectionModel):
       ValueError: if inputs tensor does not have type tf.float32
     """
     with tf.name_scope('Preprocessor'):
-      normalized_inputs = self._feature_extractor.preprocess(inputs)
-      return shape_utils.resize_images_and_return_shapes(
-          normalized_inputs, self._image_resizer_fn)
+      (resized_inputs,
+       true_image_shapes) = shape_utils.resize_images_and_return_shapes(
+           inputs, self._image_resizer_fn)
+
+      return (self._feature_extractor.preprocess(resized_inputs),
+              true_image_shapes)
 
   def _compute_clip_window(self, preprocessed_images, true_image_shapes):
     """Computes clip window to use during post_processing.
@@ -1263,8 +1295,8 @@ class SSDMetaArch(model.DetectionModel):
         classification checkpoint for initialization prior to training.
         Valid values: `detection`, `classification`. Default 'detection'.
       load_all_detection_checkpoint_vars: whether to load all variables (when
-         `fine_tune_checkpoint_type` is `detection`). If False, only variables
-         within the feature extractor scope are included. Default False.
+         `fine_tune_checkpoint_type='detection'`). If False, only variables
+         within the appropriate scopes are included. Default False.
 
     Returns:
       A dict mapping variable names (to load from a checkpoint) to variables in
@@ -1279,62 +1311,31 @@ class SSDMetaArch(model.DetectionModel):
 
     elif fine_tune_checkpoint_type == 'detection':
       variables_to_restore = {}
-      for variable in variables_helper.get_global_variables_safely():
-        var_name = variable.op.name
+      if tf.executing_eagerly():
         if load_all_detection_checkpoint_vars:
-          variables_to_restore[var_name] = variable
-        else:
-          if var_name.startswith(self._extract_features_scope):
+          # Grab all detection vars by name
+          for variable in self.variables:
+            # variable.name includes ":0" at the end, but the names in the
+            # checkpoint do not have the suffix ":0". So, we strip it here.
+            var_name = variable.name[:-2]
             variables_to_restore[var_name] = variable
+        else:
+          # Grab just the feature extractor vars by name
+          for variable in self._feature_extractor.variables:
+            # variable.name includes ":0" at the end, but the names in the
+            # checkpoint do not have the suffix ":0". So, we strip it here.
+            var_name = variable.name[:-2]
+            variables_to_restore[var_name] = variable
+      else:
+        for variable in variables_helper.get_global_variables_safely():
+          var_name = variable.op.name
+          if load_all_detection_checkpoint_vars:
+            variables_to_restore[var_name] = variable
+          else:
+            if var_name.startswith(self._extract_features_scope):
+              variables_to_restore[var_name] = variable
+
       return variables_to_restore
-
-    else:
-      raise ValueError('Not supported fine_tune_checkpoint_type: {}'.format(
-          fine_tune_checkpoint_type))
-
-  def restore_from_objects(self, fine_tune_checkpoint_type='detection'):
-    """Returns a map of Trackable objects to load from a foreign checkpoint.
-
-    Returns a dictionary of Tensorflow 2 Trackable objects (e.g. tf.Module
-    or Checkpoint). This enables the model to initialize based on weights from
-    another task. For example, the feature extractor variables from a
-    classification model can be used to bootstrap training of an object
-    detector. When loading from an object detection model, the checkpoint model
-    should have the same parameters as this detection model with exception of
-    the num_classes parameter.
-
-    Note that this function is intended to be used to restore Keras-based
-    models when running Tensorflow 2, whereas restore_map (above) is intended
-    to be used to restore Slim-based models when running Tensorflow 1.x.
-
-    Args:
-      fine_tune_checkpoint_type: A string inidicating the subset of variables
-        to load. Valid values: `detection`, `classification`, `full`. Default
-        `detection`.
-        An SSD checkpoint has three parts:
-        1) Classification Network (like ResNet)
-        2) DeConv layers (for FPN)
-        3) Box/Class prediction parameters
-        The parameters will be loaded using the following strategy:
-          `classification` - will load #1
-          `detection` - will load #1, #2
-          `full` - will load #1, #2, #3
-
-    Returns:
-      A dict mapping keys to Trackable objects (tf.Module or Checkpoint).
-    """
-    if fine_tune_checkpoint_type == 'classification':
-      return {
-          'feature_extractor':
-              self._feature_extractor.classification_backbone
-      }
-    elif fine_tune_checkpoint_type == 'detection':
-      fake_model = tf.train.Checkpoint(
-          _feature_extractor=self._feature_extractor)
-      return {'model': fake_model}
-
-    elif fine_tune_checkpoint_type == 'full':
-      return {'model': self}
 
     else:
       raise ValueError('Not supported fine_tune_checkpoint_type: {}'.format(
